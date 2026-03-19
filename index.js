@@ -212,7 +212,8 @@ async function main() {
     try {
       execSync(`${pm.run} dev`, { cwd: projectDir, stdio: "inherit" });
     } catch {
-      // User likely killed the server with Ctrl+C
+      console.log(`\n  Project directory: ${projectDir}`);
+      console.log(`  To start again:   cd ${projectName} && pnpm dev\n`);
     }
   } else {
     p.note(
