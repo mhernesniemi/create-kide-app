@@ -1,0 +1,22 @@
+{
+  "name": "create-liito-app",
+  "version": "0.0.1",
+  "description": "Scaffold a new Liito CMS project",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-liito-app": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "templates"
+  ],
+  "keywords": [
+    "astro",
+    "cms",
+    "liito"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

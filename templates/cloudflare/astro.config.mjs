@@ -1,0 +1,24 @@
+// @ts-check
+import cloudflare from "@astrojs/cloudflare";
+import react from "@astrojs/react";
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "astro/config";
+import cmsIntegration from "./src/cms/integration";
+
+// https://astro.build/config
+export default defineConfig({
+  output: "server",
+  integrations: [react(), cmsIntegration()],
+  adapter: cloudflare({
+    platformProxy: {
+      enabled: true,
+    },
+  }),
+  vite: {
+    plugins: [tailwindcss()],
+    resolve: {
+      // Ensure Cloudflare-compatible modules are used
+      conditions: ["workerd", "worker", "browser"],
+    },
+  },
+});
