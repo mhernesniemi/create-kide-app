@@ -177,13 +177,19 @@ async function main() {
   // --- Seed demo content ---
 
   if (seedDemo && target === "local") {
-    s.start("Seeding demo content");
+    s.start("Pushing schema to database");
     try {
       execSync(`${pm.exec} drizzle-kit push --force`, { cwd: projectDir, stdio: "pipe" });
+      s.stop("Schema pushed");
+    } catch {
+      s.stop("Schema push failed — will retry on dev start");
+    }
+    s.start("Seeding demo content");
+    try {
       execSync(`${pm.run} cms:seed`, { cwd: projectDir, stdio: "pipe" });
       s.stop("Demo content seeded");
     } catch {
-      s.stop("Seeding failed — run `drizzle-kit push --force && cms:seed` manually");
+      s.stop("Seeding failed — run `pnpm cms:seed` manually");
     }
   } else if (seedDemo && target === "cloudflare") {
     p.note(
