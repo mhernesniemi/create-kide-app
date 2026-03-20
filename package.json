@@ -1,11 +1,11 @@
 {
-  "name": "create-liito-app",
+  "name": "create-kide-app",
   "version": "0.0.1",
-  "description": "Scaffold a new Liito CMS project",
+  "description": "Scaffold a new Kide CMS project",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "create-liito-app": "./index.js"
+    "create-kide-app": "./index.js"
   },
   "files": [
     "index.js",
@@ -14,7 +14,7 @@
   "keywords": [
     "astro",
     "cms",
-    "liito"
+    "kide"
   ],
   "engines": {
     "node": ">=22.12.0"

@@ -1,15 +1,15 @@
-# create-liito-app
+# create-kide-app
 
-Scaffold a new [Liito CMS](https://github.com/mhernesniemi/liito-cms) project.
+Scaffold a new [Kide CMS](https://github.com/mhernesniemi/kide-cms) project.
 
 ## Usage
 
 ```bash
-npm create liito-app my-project
+npm create kide-app my-project
 # or
-pnpm create liito-app my-project
+pnpm create kide-app my-project
 # or
-bunx create-liito-app my-project
+bunx create-kide-app my-project
 ```
 
 The CLI will guide you through:
@@ -20,7 +20,7 @@ The CLI will guide you through:
 
 ## What it does
 
-- Downloads the latest Liito CMS template from GitHub
+- Downloads the latest Kide CMS template from GitHub
 - Applies platform-specific configuration (Node.js adapter, Cloudflare D1/R2, etc.)
 - Installs dependencies
 - Generates the CMS schema

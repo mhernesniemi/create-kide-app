@@ -14,12 +14,12 @@ const TEMPLATES_DIR = path.join(__dirname, "templates");
 const pm = { name: "pnpm", exec: "pnpm dlx", run: "pnpm", install: "pnpm install" };
 
 // --- Template repo URL ---
-const REPO_URL = "https://github.com/mhernesniemi/liito-cms/archive/refs/heads/main.tar.gz";
+const REPO_URL = "https://github.com/mhernesniemi/kide-cms/archive/refs/heads/main.tar.gz";
 
 // --- Main ---
 
 async function main() {
-  p.intro("Create Liito CMS Project");
+  p.intro("Create Kide CMS Project");
 
   // 1. Project name
   const projectName =
@@ -85,7 +85,7 @@ async function main() {
     s.message("Archive download failed, trying git clone...");
     rmSync(projectDir, { recursive: true, force: true });
     try {
-      execSync(`git clone --depth 1 https://github.com/mhernesniemi/liito-cms.git "${projectDir}"`, {
+      execSync(`git clone --depth 1 https://github.com/mhernesniemi/kide-cms.git "${projectDir}"`, {
         stdio: "pipe",
       });
       rmSync(path.join(projectDir, ".git"), { recursive: true, force: true });
