@@ -182,7 +182,7 @@ async function main() {
       execSync(`${pm.exec} drizzle-kit push --force`, { cwd: projectDir, stdio: "pipe" });
       s.stop("Schema pushed");
     } catch {
-      s.stop("Schema push failed — will retry on dev start");
+      s.stop("Schema will be set up on first dev start");
     }
     s.start("Seeding demo content");
     try {
