@@ -118,6 +118,13 @@ async function main() {
   cpSync(path.join(targetDir, "db.ts"), path.join(projectDir, "src/cms/core/db.ts"));
   cpSync(path.join(targetDir, "drizzle.config.ts"), path.join(projectDir, "drizzle.config.ts"));
 
+  if (target === "cloudflare") {
+    cpSync(path.join(targetDir, "storage.ts"), path.join(projectDir, "src/cms/core/storage.ts"));
+    const uploadsRouteDir = path.join(projectDir, "src/pages/uploads");
+    mkdirSync(uploadsRouteDir, { recursive: true });
+    cpSync(path.join(targetDir, "uploads-route.ts"), path.join(uploadsRouteDir, "[...path].ts"));
+  }
+
   const pkgPath = path.join(projectDir, "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
