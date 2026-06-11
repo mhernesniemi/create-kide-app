@@ -35,6 +35,22 @@ const REPO = "https://github.com/mhernesniemi/kide-cms.git";
 // Files from the kide-cms repo that shouldn't leak into scaffolded projects.
 const CLEANUP = ["docs", "CLAUDE.md", ".claude", "data", ".cms-data", "dist", ".astro", ".DS_Store"];
 
+// Resolve the latest release tag (v-prefixed semver) so scaffolds pin to a
+// deliberate release instead of whatever HEAD happens to be. Returns null when
+// the repo has no tags (falls back to the default branch).
+const resolveLatestTag = () => {
+  try {
+    const output = execSync(`git ls-remote --tags --sort=-v:refname ${REPO} "v*"`, { stdio: "pipe" }).toString();
+    for (const line of output.split("\n")) {
+      const match = line.match(/refs\/tags\/(v[0-9][^^\s]*)$/);
+      if (match) return match[1];
+    }
+  } catch {
+    // Network/git hiccup — fall back to default branch
+  }
+  return null;
+};
+
 // --- Main ---
 
 async function main() {
@@ -97,8 +113,17 @@ async function main() {
 
   s.start(`Scaffolding project (using ${pm.name})`);
 
+  const templateRef = resolveLatestTag();
+  let templateCommit = null;
+
   try {
-    execSync(`git clone --depth 1 ${REPO} "${projectDir}"`, { stdio: "pipe" });
+    const branchFlag = templateRef ? `--branch "${templateRef}" ` : "";
+    execSync(`git clone --depth 1 ${branchFlag}${REPO} "${projectDir}"`, { stdio: "pipe" });
+    try {
+      templateCommit = execSync("git rev-parse HEAD", { cwd: projectDir, stdio: "pipe" }).toString().trim();
+    } catch {
+      // best-effort — stamp without a commit hash
+    }
     rmSync(path.join(projectDir, ".git"), { recursive: true, force: true });
   } catch {
     s.stop("Failed to download template.");
@@ -111,7 +136,7 @@ async function main() {
     rmSync(path.join(projectDir, f), { recursive: true, force: true });
   }
 
-  s.stop("Project scaffolded");
+  s.stop(templateRef ? `Project scaffolded from ${templateRef}` : "Project scaffolded");
 
   // --- Apply target-specific files ---
 
@@ -162,6 +187,26 @@ async function main() {
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 
   rmSync(adaptersDir, { recursive: true, force: true });
+
+  // Stamp the scaffold provenance. This file is the project's record of which
+  // template release it came from — used to diff against upstream and to check
+  // whether published security advisories apply to this project.
+  let cliVersion = null;
+  try {
+    cliVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8")).version;
+  } catch {
+    // best-effort
+  }
+  const versionStamp = {
+    template: REPO.replace(/\.git$/, ""),
+    kideVersion: pkg.version ?? null,
+    ref: templateRef ?? "HEAD",
+    commit: templateCommit,
+    target,
+    scaffoldedAt: new Date().toISOString(),
+    createKideApp: cliVersion,
+  };
+  writeFileSync(path.join(projectDir, ".kide-version"), `${JSON.stringify(versionStamp, null, 2)}\n`);
 
   s.stop("Configuration applied");
 
@@ -362,9 +407,15 @@ async function main() {
             stdio: "pipe",
           }).toString();
           const match = output.match(/database_id\s*=\s*"([^"]+)"/);
-          if (match) databaseId = match[1];
-          cf.d1Created = true;
-          s.stop("D1 database created");
+          if (match) {
+            databaseId = match[1];
+            cf.d1Created = true;
+            s.stop("D1 database created");
+          } else {
+            // Created but the id couldn't be parsed from wrangler's output —
+            // don't mark as done, so the summary tells the user to wire it up.
+            s.stop("D1 database created, but its id could not be read — copy the database_id to wrangler.toml manually");
+          }
         } catch (err) {
           // Already exists — look it up
           try {
