@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import * as p from "@clack/prompts";
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -59,6 +59,19 @@ const CLEANUP = [
   ".DS_Store",
 ];
 
+// The project name reaches shell commands (git, wrangler) and path.resolve, so it is
+// validated before either. Restricting it to one path segment of safe characters keeps
+// `$(...)`, backticks, `;` and separators out of those commands and out of the target
+// path. Must start alphanumeric so "." and ".." can never be the whole name.
+const PROJECT_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
+const validateProjectName = (value) => {
+  if (!PROJECT_NAME_PATTERN.test(value)) {
+    return "Project name must start with a letter or number and contain only letters, numbers, dots, dashes and underscores.";
+  }
+  return undefined;
+};
+
 // Resolve the latest release tag (v-prefixed semver) so scaffolds pin to a
 // deliberate release instead of whatever HEAD happens to be. Returns null when
 // the repo has no tags (falls back to the default branch).
@@ -91,12 +104,21 @@ async function main() {
       placeholder: "my-cms-app",
       validate: (value) => {
         if (!value) return "Project name is required";
+        return validateProjectName(value);
       },
     }));
 
   if (p.isCancel(projectName)) {
     p.cancel("Setup cancelled.");
     process.exit(0);
+  }
+
+  // Re-check: the interactive path validates above, but a name from argv skips it,
+  // and this value reaches shell commands and path.resolve below.
+  const nameError = validateProjectName(projectName);
+  if (nameError) {
+    p.cancel(nameError);
+    process.exit(1);
   }
 
   const projectDir = path.resolve(process.cwd(), projectName);
@@ -144,8 +166,10 @@ async function main() {
   let templateCommit = null;
 
   try {
-    const branchFlag = templateRef ? `--branch "${templateRef}" ` : "";
-    execSync(`git clone --depth 1 ${branchFlag}${REPO} "${projectDir}"`, {
+    const branchArgs = templateRef ? ["--branch", templateRef] : [];
+    // execFileSync, not execSync: no shell, so projectDir is passed as one argv entry
+    // and can never be reinterpreted as a command regardless of what it contains.
+    execFileSync("git", ["clone", "--depth", "1", ...branchArgs, REPO, projectDir], {
       stdio: "pipe",
     });
     try {
