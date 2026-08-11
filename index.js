@@ -169,9 +169,13 @@ async function main() {
     const branchArgs = templateRef ? ["--branch", templateRef] : [];
     // execFileSync, not execSync: no shell, so projectDir is passed as one argv entry
     // and can never be reinterpreted as a command regardless of what it contains.
-    execFileSync("git", ["clone", "--depth", "1", ...branchArgs, REPO, projectDir], {
-      stdio: "pipe",
-    });
+    execFileSync(
+      "git",
+      ["clone", "--depth", "1", ...branchArgs, REPO, projectDir],
+      {
+        stdio: "pipe",
+      },
+    );
     try {
       templateCommit = execSync("git rev-parse HEAD", {
         cwd: projectDir,
@@ -208,31 +212,24 @@ async function main() {
   const targetDir = path.join(adaptersDir, target);
 
   if (target === "cloudflare") {
+    // The Cloudflare adapter/storage/env implementations live in the tree at
+    // src/cms/platform/cloudflare. We only copy the target's Astro/Drizzle/wrangler config and
+    // flip the two platform selectors to point at that profile — no source files are overwritten.
     cpSync(
       path.join(targetDir, "astro.config.mjs"),
       path.join(projectDir, "astro.config.mjs"),
     );
     cpSync(
-      path.join(targetDir, "src/cms/adapters/db.ts"),
-      path.join(projectDir, "src/cms/adapters/db.ts"),
-    );
-    cpSync(
       path.join(targetDir, "drizzle.config.ts"),
       path.join(projectDir, "drizzle.config.ts"),
     );
-    cpSync(
-      path.join(targetDir, "src/cms/adapters/storage.ts"),
+    writeFileSync(
+      path.join(projectDir, "src/cms/adapters/db.ts"),
+      'export * from "../platform/cloudflare/database";\n',
+    );
+    writeFileSync(
       path.join(projectDir, "src/cms/adapters/storage.ts"),
-    );
-    cpSync(
-      path.join(targetDir, "src/cms/adapters/cf-env.ts"),
-      path.join(projectDir, "src/cms/adapters/cf-env.ts"),
-    );
-    const uploadsRouteDir = path.join(projectDir, "src/pages/uploads");
-    mkdirSync(uploadsRouteDir, { recursive: true });
-    cpSync(
-      path.join(targetDir, "src/pages/uploads/[...path].ts"),
-      path.join(uploadsRouteDir, "[...path].ts"),
+      'export * from "../platform/cloudflare/storage";\n',
     );
   }
 
@@ -243,7 +240,7 @@ async function main() {
 
   if (target === "cloudflare") {
     delete pkg.dependencies["@astrojs/node"];
-    pkg.dependencies["@astrojs/cloudflare"] = "^13.0.0";
+    pkg.dependencies["@astrojs/cloudflare"] = "~14.1.7";
 
     // Move better-sqlite3 to devDependencies — drizzle-kit needs it to push schema to local D1
     if (pkg.dependencies["better-sqlite3"]) {
@@ -272,7 +269,7 @@ async function main() {
     );
     writeFileSync(path.join(projectDir, "wrangler.toml"), wranglerContent);
 
-    pkg.devDependencies.wrangler = "^4.0.0";
+    pkg.devDependencies.wrangler = "^4.83.0";
 
     pkg.scripts.dev = "astro dev";
     pkg.scripts.build = "astro build";
@@ -713,12 +710,25 @@ async function main() {
   // --- Done ---
 
   if (target === "local") {
-    p.outro("Starting dev server...");
-    try {
-      execSync(`${pm.run} dev`, { cwd: projectDir, stdio: "inherit" });
-    } catch {
-      console.log(`\n  Project directory: ${projectDir}`);
-      console.log(`  To start again:   cd ${projectName} && pnpm dev\n`);
+    const startDev = await p.confirm({
+      message: "Start the dev server now?",
+      initialValue: true,
+    });
+
+    if (!p.isCancel(startDev) && startDev) {
+      p.outro("Starting dev server...");
+      try {
+        execSync(`${pm.run} dev`, { cwd: projectDir, stdio: "inherit" });
+      } catch {
+        console.log(`\n  Project directory: ${projectDir}`);
+        console.log(`  To start again:   cd ${projectName} && pnpm dev\n`);
+      }
+    } else {
+      p.note(
+        [`cd ${projectName}`, "", `${pm.run} dev`].join("\n"),
+        "Next steps",
+      );
+      p.outro("Project created!");
     }
   } else {
     if (cf.deployed && cf.url) {

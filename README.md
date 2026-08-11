@@ -5,7 +5,7 @@ Scaffold a new [Kide CMS](https://github.com/mhernesniemi/kide-cms) project.
 ## Usage
 
 ```bash
-pnpx create-kide-app my-project
+pnpm create kide-app my-project
 ```
 
 The CLI asks for:
