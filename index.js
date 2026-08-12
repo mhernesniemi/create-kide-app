@@ -5,7 +5,6 @@ import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
-  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -480,22 +479,13 @@ async function main() {
 
   if (seedDemo && target === "local") {
     s.start("Pushing schema to database");
-    // Ensure data/ directory exists — drizzle-kit push silently exits 0 if it can't open the file
-    mkdirSync(path.join(projectDir, "data"), { recursive: true });
-    let pushOk = false;
+    // The guarded sync script (exits non-zero on failure, creates data/ itself) —
+    // same path the dev server and deploys use.
     try {
-      const out = execSync(`${pm.exec} drizzle-kit push --force`, {
-        cwd: projectDir,
-        stdio: "pipe",
-      }).toString();
-      pushOk = !out.includes("Error:") && out.includes("Changes applied");
-      s.stop(
-        pushOk
-          ? "Schema pushed"
-          : "Schema push failed — run `pnpm exec drizzle-kit push` manually",
-      );
+      execSync(`${pm.run} cms:push`, { cwd: projectDir, stdio: "pipe" });
+      s.stop("Schema pushed");
     } catch {
-      s.stop("Schema will be set up on first dev start");
+      s.stop("Schema push failed — run `pnpm cms:push` manually");
     }
     s.start("Seeding demo content");
     try {
