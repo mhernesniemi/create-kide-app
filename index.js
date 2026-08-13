@@ -51,6 +51,8 @@ const CLEANUP = [
   "docs",
   "CLAUDE.md",
   ".claude/settings.local.json",
+  ".github/workflows", // upstream CI + @kidecms/core release pipeline — wrong in any scaffold
+  "scripts/verify-cloudflare.mjs", // needs the adapters/ overlay, which every scaffold deletes
   "data",
   ".cms-data",
   "dist",
@@ -140,19 +142,20 @@ async function main() {
     process.exit(1);
   }
 
-  // 2. Distribution mode — deliberately no recommended default; both are first-class.
+  // 2. Distribution mode — package is the recommended default; embedded stays
+  // first-class for teams that want to own and modify the runtime source.
   const mode = await p.select({
     message: "How do you want the CMS runtime?",
     options: [
       {
-        label: "Embedded",
-        value: "embedded",
-        hint: "CMS source lives in src/cms/ — read, debug, and modify everything",
+        label: "Package (recommended)",
+        value: "package",
+        hint: "thin project + @kidecms/core dependency — most updates are a version bump; eject to embedded later",
       },
       {
-        label: "Package",
-        value: "package",
-        hint: "thin project + @kidecms/core npm dependency — update via semver, eject to embedded anytime",
+        label: "Embedded",
+        value: "embedded",
+        hint: "full CMS source in src/cms/ — modify internals, audit everything; upgrades arrive as release packets",
       },
     ],
   });
@@ -258,6 +261,15 @@ async function main() {
     }
     rmSync(corePkgPath, { force: true });
     rmSync(path.join(projectDir, "pnpm-workspace.yaml"), { force: true });
+    // Upstream distribution tooling that assumes the embedded workspace package.
+    rmSync(path.join(projectDir, "scripts/verify-pack.mjs"), { force: true });
+    rmSync(path.join(projectDir, "scripts/verify-package-mode.mjs"), {
+      force: true,
+    });
+    // Worker tests and the Cloudflare type profile live in the deleted
+    // src/cms/platform — their configs would match zero files.
+    rmSync(path.join(projectDir, "vitest.workers.config.ts"), { force: true });
+    rmSync(path.join(projectDir, "tsconfig.cloudflare.json"), { force: true });
   }
 
   s.stop(
@@ -293,6 +305,12 @@ async function main() {
       path.join(projectDir, "src/cms/adapters/storage.ts"),
       'export * from "@kidecms/core/platform/cloudflare/storage";\n',
     );
+    // The adapter test asserts Node filesystem storage — meaningless (and failing)
+    // once the adapter re-exports the R2 profile.
+    rmSync(path.join(projectDir, "src/cms/adapters/__tests__"), {
+      recursive: true,
+      force: true,
+    });
   }
 
   const pkgPath = path.join(projectDir, "package.json");
@@ -300,8 +318,20 @@ async function main() {
 
   pkg.name = projectName;
 
+  // Upstream-repo tooling that no scaffold can run (needs the deleted adapters/ overlay).
+  delete pkg.scripts["verify:cloudflare"];
+
   if (mode === "package" && pkg.dependencies["@kidecms/core"]) {
     pkg.dependencies["@kidecms/core"] = `^${coreVersion}`;
+    delete pkg.scripts["verify:pack"];
+    delete pkg.scripts["verify:package"];
+    // The runtime (and its worker tests + Cloudflare type profile) now lives in
+    // node_modules — keep check/test scoped to project code, and let vitest pass
+    // until the project has tests of its own.
+    delete pkg.scripts["test:workers"];
+    delete pkg.scripts["check:cloudflare"];
+    pkg.scripts.check = "astro check && eslint .";
+    pkg.scripts.test = "pnpm cms:generate && vitest run --passWithNoTests";
   }
 
   if (target === "cloudflare") {

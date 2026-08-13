@@ -11,7 +11,7 @@ pnpm create kide-app my-project
 The CLI asks for:
 
 1. **Project name** — directory to create
-2. **Distribution mode** — Embedded (CMS source in `src/cms/`, yours to modify) or Package (thin project + `@kidecms/core` npm dependency; `pnpm exec kide eject` converts to embedded later)
+2. **Distribution mode** — Package (recommended: thin project + `@kidecms/core` npm dependency; `pnpm exec kide eject` converts to embedded later, one-way) or Embedded (full CMS source in `src/cms/`, yours to modify)
 3. **Deploy target** — Local/Node.js or Cloudflare
 4. **Seed demo content** — local target only
 
