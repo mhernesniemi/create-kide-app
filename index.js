@@ -148,14 +148,14 @@ async function main() {
     message: "How do you want the CMS runtime?",
     options: [
       {
-        label: "Package (recommended)",
+        label: "Package",
         value: "package",
-        hint: "thin project + @kidecms/core dependency — most updates are a version bump; eject to embedded later",
+        hint: "@kidecms/core dependency",
       },
       {
         label: "Embedded",
         value: "embedded",
-        hint: "full CMS source in src/cms/ — modify internals, audit everything; upgrades arrive as release packets",
+        hint: "full CMS source in src/cms/, yours to modify",
       },
     ],
   });
@@ -317,6 +317,15 @@ async function main() {
     delete pkg.scripts["check:cloudflare"];
     pkg.scripts.check = "astro check && eslint .";
     pkg.scripts.test = "pnpm cms:generate && vitest run --passWithNoTests";
+    // Upstream test-fixture tooling lives in the deleted core/__tests__ tree.
+    delete pkg.scripts["test:fixtures"];
+    rmSync(path.join(projectDir, "scripts/generate-test-fixtures.ts"), {
+      force: true,
+    });
+    // Dev tooling for the deleted worker tests / Cloudflare type profile.
+    delete pkg.devDependencies["@cloudflare/vitest-pool-workers"];
+    delete pkg.devDependencies["@cloudflare/workers-types"];
+    delete pkg.devDependencies["jsdom"];
   }
 
   if (target === "cloudflare") {
