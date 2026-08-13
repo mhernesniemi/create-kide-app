@@ -11,12 +11,13 @@ pnpm create kide-app my-project
 The CLI asks for:
 
 1. **Project name** — directory to create
-2. **Deploy target** — Local/Node.js or Cloudflare
-3. **Seed demo content** — local target only
+2. **Distribution mode** — Embedded (CMS source in `src/cms/`, yours to modify) or Package (thin project + `@kidecms/core` npm dependency; `pnpm exec kide eject` converts to embedded later)
+3. **Deploy target** — Local/Node.js or Cloudflare
+4. **Seed demo content** — local target only
 
 ## What it does
 
-- Clones the latest Kide CMS from GitHub.
+- Clones the latest Kide CMS release from GitHub (package mode then swaps the embedded runtime for the published `@kidecms/core` at the same version).
 - Applies target-specific configuration (Node.js adapter, or Cloudflare D1/R2/Workers).
 - Installs dependencies with pnpm.
 - Optionally creates a GitHub repo (if the `gh` CLI is installed and authenticated).

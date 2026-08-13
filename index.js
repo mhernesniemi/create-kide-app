@@ -58,6 +58,20 @@ const CLEANUP = [
   ".DS_Store",
 ];
 
+// Managed runtime dirs inside src/cms — the contents of the @kidecms/core
+// package. Deleted in package mode (the npm dependency provides them);
+// everything else in src/cms (cms.config, collections, adapters, fields,
+// runtime.ts, migrations) is project-owned and stays in both modes.
+const MANAGED_DIRS = [
+  "admin",
+  "client",
+  "core",
+  "internals",
+  "middleware",
+  "platform",
+  "routes",
+];
+
 // The project name reaches shell commands (git, wrangler) and path.resolve, so it is
 // validated before either. Restricting it to one path segment of safe characters keeps
 // `$(...)`, backticks, `;` and separators out of those commands and out of the target
@@ -126,7 +140,29 @@ async function main() {
     process.exit(1);
   }
 
-  // 2. Deploy target
+  // 2. Distribution mode — deliberately no recommended default; both are first-class.
+  const mode = await p.select({
+    message: "How do you want the CMS runtime?",
+    options: [
+      {
+        label: "Embedded",
+        value: "embedded",
+        hint: "CMS source lives in src/cms/ — read, debug, and modify everything",
+      },
+      {
+        label: "Package",
+        value: "package",
+        hint: "thin project + @kidecms/core npm dependency — update via semver, eject to embedded anytime",
+      },
+    ],
+  });
+
+  if (p.isCancel(mode)) {
+    p.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  // 3. Deploy target
   const target = await p.select({
     message: "Where will you deploy?",
     options: [
@@ -140,7 +176,7 @@ async function main() {
     process.exit(0);
   }
 
-  // 3. Demo content (local only — Cloudflare uses remote D1)
+  // 4. Demo content (local only — Cloudflare uses remote D1)
   let seedDemo = false;
   if (target === "local") {
     const seed = await p.confirm({
@@ -197,10 +233,37 @@ async function main() {
     rmSync(path.join(projectDir, f), { recursive: true, force: true });
   }
 
+  // Both modes scaffold the same template at the same tag; package mode then
+  // deletes the managed runtime dirs and swaps the workspace link for the
+  // published @kidecms/core at exactly that version — same source either way.
+  const corePkgPath = path.join(projectDir, "src/cms/package.json");
+  let coreVersion = null;
+  if (existsSync(corePkgPath)) {
+    coreVersion = JSON.parse(readFileSync(corePkgPath, "utf-8")).version;
+  }
+
+  if (mode === "package") {
+    if (!coreVersion) {
+      s.stop("Scaffolding failed");
+      p.cancel(
+        "This template release predates package mode — choose Embedded, or wait for the next release.",
+      );
+      process.exit(1);
+    }
+    for (const managed of MANAGED_DIRS) {
+      rmSync(path.join(projectDir, "src/cms", managed), {
+        recursive: true,
+        force: true,
+      });
+    }
+    rmSync(corePkgPath, { force: true });
+    rmSync(path.join(projectDir, "pnpm-workspace.yaml"), { force: true });
+  }
+
   s.stop(
     templateRef
-      ? `Project scaffolded from ${templateRef}`
-      : "Project scaffolded",
+      ? `Project scaffolded from ${templateRef} (${mode})`
+      : `Project scaffolded (${mode})`,
   );
 
   // --- Apply target-specific files ---
@@ -224,11 +287,11 @@ async function main() {
     );
     writeFileSync(
       path.join(projectDir, "src/cms/adapters/db.ts"),
-      'export * from "../platform/cloudflare/database";\n',
+      'export * from "@kidecms/core/platform/cloudflare/database";\n',
     );
     writeFileSync(
       path.join(projectDir, "src/cms/adapters/storage.ts"),
-      'export * from "../platform/cloudflare/storage";\n',
+      'export * from "@kidecms/core/platform/cloudflare/storage";\n',
     );
   }
 
@@ -236,6 +299,10 @@ async function main() {
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
   pkg.name = projectName;
+
+  if (mode === "package" && pkg.dependencies["@kidecms/core"]) {
+    pkg.dependencies["@kidecms/core"] = `^${coreVersion}`;
+  }
 
   if (target === "cloudflare") {
     delete pkg.dependencies["@astrojs/node"];
@@ -268,7 +335,7 @@ async function main() {
     );
     writeFileSync(path.join(projectDir, "wrangler.toml"), wranglerContent);
 
-    pkg.devDependencies.wrangler = "^4.83.0";
+    pkg.devDependencies.wrangler = "^4.121.0";
 
     pkg.scripts.dev = "astro dev";
     pkg.scripts.build = "astro build";
@@ -308,10 +375,11 @@ async function main() {
   }
   const versionStamp = {
     template: REPO.replace(/\.git$/, ""),
-    kideVersion: pkg.version ?? null,
+    kideVersion: coreVersion ?? pkg.version ?? null,
     ref: templateRef ?? "HEAD",
     commit: templateCommit,
     target,
+    mode,
     corePath: "src/cms",
     scaffoldedAt: new Date().toISOString(),
     createKideApp: cliVersion,
