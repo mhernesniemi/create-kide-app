@@ -14,7 +14,7 @@ The CLI asks for:
 2. **Distribution mode** — Package (recommended: thin project + `@kidecms/core` npm dependency; `pnpm exec kide eject` converts to embedded later, one-way) or Embedded (full CMS source in `src/cms/`, yours to modify)
 3. **Deploy target** — Local/Node.js or Cloudflare
 
-Every project starts bare-bones: one `examples` collection (`title` + `body`) and a minimal public page — no demo content, no seeds.
+Every project starts bare-bones: one `pages` collection (`title`, `slug`, `body`) and a minimal public page — no demo content, no seeds.
 
 ## What it does
 
