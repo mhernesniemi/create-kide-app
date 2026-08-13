@@ -179,21 +179,6 @@ async function main() {
     process.exit(0);
   }
 
-  // 4. Demo content (local only — Cloudflare uses remote D1)
-  let seedDemo = false;
-  if (target === "local") {
-    const seed = await p.confirm({
-      message: "Seed database with demo content?",
-      initialValue: false,
-    });
-
-    if (p.isCancel(seed)) {
-      p.cancel("Setup cancelled.");
-      process.exit(0);
-    }
-    seedDemo = seed;
-  }
-
   const s = p.spinner();
 
   // --- Scaffold via git clone ---
@@ -571,41 +556,6 @@ async function main() {
     s.stop("Schema generated");
   } catch {
     s.stop("Schema generation failed — run `cms:generate` manually");
-  }
-
-  // --- Seed demo content ---
-
-  if (seedDemo && target === "local") {
-    s.start("Pushing schema to database");
-    // The guarded sync script (exits non-zero on failure, creates data/ itself) —
-    // same path the dev server and deploys use.
-    try {
-      execSync(`${pm.run} cms:push`, { cwd: projectDir, stdio: "pipe" });
-      s.stop("Schema pushed");
-    } catch {
-      s.stop("Schema push failed — run `pnpm cms:push` manually");
-    }
-    s.start("Seeding demo content");
-    try {
-      execSync(`${pm.run} cms:seed`, { cwd: projectDir, stdio: "pipe" });
-      s.stop("Demo content seeded");
-    } catch (err) {
-      s.stop("Seeding failed — run `pnpm cms:seed` manually");
-      if (err.stderr) console.error(err.stderr.toString());
-      if (err.stdout) console.error(err.stdout.toString());
-    }
-  } else if (seedDemo && target === "cloudflare") {
-    p.note(
-      [
-        "Seeding for Cloudflare requires a D1 database.",
-        "",
-        `  ${pm.dlx} wrangler d1 create ${projectName}-db`,
-        "  # then replace the placeholder database_id in wrangler.toml",
-        `  ${pm.dlx} wrangler d1 migrations apply ${projectName}-db --local`,
-        `  ${pm.run} cms:seed`,
-      ].join("\n"),
-      "Seed manually",
-    );
   }
 
   // --- Cloudflare resource setup ---

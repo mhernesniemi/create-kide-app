@@ -13,7 +13,8 @@ The CLI asks for:
 1. **Project name** — directory to create
 2. **Distribution mode** — Package (recommended: thin project + `@kidecms/core` npm dependency; `pnpm exec kide eject` converts to embedded later, one-way) or Embedded (full CMS source in `src/cms/`, yours to modify)
 3. **Deploy target** — Local/Node.js or Cloudflare
-4. **Seed demo content** — local target only
+
+Every project starts bare-bones: one `examples` collection (`title` + `body`) and a minimal public page — no demo content, no seeds.
 
 ## What it does
 
@@ -22,7 +23,7 @@ The CLI asks for:
 - Installs dependencies with pnpm.
 - Optionally creates a GitHub repo (if the `gh` CLI is installed and authenticated).
 - Generates the CMS schema.
-- For **local**: optionally seeds demo content, then starts the dev server.
+- For **local**: starts the dev server.
 - For **Cloudflare**: logs into wrangler (if needed), creates a D1 database and R2 bucket, applies migrations, builds and deploys, and prints the live URL + admin URL.
 
 ## Requirements
