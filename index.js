@@ -5,6 +5,7 @@ import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -42,7 +43,11 @@ const pm = {
 
 // --- Template repo ---
 
-const REPO = "https://github.com/mhernesniemi/kide-cms.git";
+// Overridable for forks and for testing against a local checkout
+// (e.g. KIDE_TEMPLATE_REPO=file:///path/to/kide-cms).
+const REPO =
+  process.env.KIDE_TEMPLATE_REPO ||
+  "https://github.com/mhernesniemi/kide-cms.git";
 
 // Files from the kide-cms repo that shouldn't leak into scaffolded projects.
 // NOTE: `.claude/settings.local.json` is removed but `.claude/skills/` is kept,
@@ -106,14 +111,50 @@ const resolveLatestTag = () => {
   return null;
 };
 
+// --- CLI flags (non-interactive use: CI, agents, testing) ---
+// Any prompt whose answer is supplied by a flag is skipped. Example:
+//   create-kide-app my-app --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
+
+const parseArgs = (argv) => {
+  const flags = {};
+  const positional = [];
+  for (const arg of argv) {
+    if (arg === "--seed") flags.seed = true;
+    else if (arg === "--no-seed") flags.seed = false;
+    else if (arg === "--no-github") flags.noGithub = true;
+    else if (arg === "--no-dev") flags.noDev = true;
+    else if (arg === "--no-cloudflare-setup") flags.noCloudflareSetup = true;
+    else if (arg.startsWith("--starter=")) flags.starter = arg.slice("--starter=".length);
+    else if (arg.startsWith("--mode=")) flags.mode = arg.slice("--mode=".length);
+    else if (arg.startsWith("--target=")) flags.target = arg.slice("--target=".length);
+    else if (arg.startsWith("--")) flags.unknown = arg;
+    else positional.push(arg);
+  }
+  return { flags, positional };
+};
+
 // --- Main ---
 
 async function main() {
   p.intro("🪐 Create Kide CMS Project");
 
+  const { flags, positional } = parseArgs(process.argv.slice(2));
+  if (flags.unknown) {
+    p.cancel(`Unknown flag: ${flags.unknown}`);
+    process.exit(1);
+  }
+  if (flags.mode !== undefined && !["package", "embedded"].includes(flags.mode)) {
+    p.cancel(`--mode must be "package" or "embedded".`);
+    process.exit(1);
+  }
+  if (flags.target !== undefined && !["local", "cloudflare"].includes(flags.target)) {
+    p.cancel(`--target must be "local" or "cloudflare".`);
+    process.exit(1);
+  }
+
   // 1. Project name
   const projectName =
-    process.argv[2] ||
+    positional[0] ||
     (await p.text({
       message: "Project name",
       placeholder: "my-cms-app",
@@ -142,48 +183,14 @@ async function main() {
     process.exit(1);
   }
 
-  // 2. Distribution mode — package is the recommended default; embedded stays
-  // first-class for teams that want to own and modify the runtime source.
-  const mode = await p.select({
-    message: "How do you want the CMS runtime?",
-    options: [
-      {
-        label: "Package",
-        value: "package",
-        hint: "@kidecms/core dependency",
-      },
-      {
-        label: "Embedded",
-        value: "embedded",
-        hint: "full CMS source in src/cms/, yours to modify",
-      },
-    ],
-  });
-
-  if (p.isCancel(mode)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
-
-  // 3. Deploy target
-  const target = await p.select({
-    message: "Where will you deploy?",
-    options: [
-      { label: "Local / Node.js", value: "local" },
-      { label: "Cloudflare", value: "cloudflare" },
-    ],
-  });
-
-  if (p.isCancel(target)) {
-    p.cancel("Setup cancelled.");
-    process.exit(0);
-  }
-
   const s = p.spinner();
 
   // --- Scaffold via git clone ---
+  // The clone happens before the remaining prompts so the starter list can be
+  // read from the cloned tag — new starters ship with template releases, no CLI
+  // release needed.
 
-  s.start(`Scaffolding project (using ${pm.name})`);
+  s.start("Downloading template");
 
   const templateRef = resolveLatestTag();
   let templateCommit = null;
@@ -211,6 +218,7 @@ async function main() {
     }
     rmSync(path.join(projectDir, ".git"), { recursive: true, force: true });
   } catch {
+    rmSync(projectDir, { recursive: true, force: true });
     s.stop("Failed to download template.");
     p.cancel("Check your network connection.");
     process.exit(1);
@@ -220,6 +228,127 @@ async function main() {
   for (const f of CLEANUP) {
     rmSync(path.join(projectDir, f), { recursive: true, force: true });
   }
+
+  s.stop(templateRef ? `Template ready (${templateRef})` : "Template ready");
+
+  // From here on the clone exists, so a cancelled prompt must remove it.
+  const cancelSetup = (message = "Setup cancelled.") => {
+    rmSync(projectDir, { recursive: true, force: true });
+    p.cancel(message);
+    process.exit(0);
+  };
+
+  // 2. Starter template — options come from starters/*/starter.json in the
+  // cloned tag. Older tags have no starters/ dir; the prompt is skipped and the
+  // scaffold stays blank.
+  const startersDir = path.join(projectDir, "starters");
+  const starterOptions = [];
+  if (existsSync(startersDir)) {
+    for (const entry of readdirSync(startersDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const manifestPath = path.join(startersDir, entry.name, "starter.json");
+      if (!existsSync(manifestPath)) continue;
+      try {
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+        starterOptions.push({
+          label: manifest.label ?? entry.name,
+          value: entry.name,
+          hint: manifest.hint,
+          order: manifest.order ?? 100,
+        });
+      } catch {
+        // unreadable manifest — skip this starter
+      }
+    }
+    starterOptions.sort((a, b) => a.order - b.order);
+  }
+
+  let starter = null;
+  if (flags.starter !== undefined) {
+    if (flags.starter !== "blank") {
+      if (!starterOptions.some((option) => option.value === flags.starter)) {
+        cancelSetup(
+          `Unknown starter "${flags.starter}". Available: blank${starterOptions.map((o) => `, ${o.value}`).join("")}`,
+        );
+      }
+      starter = flags.starter;
+    }
+  } else if (starterOptions.length > 0) {
+    const choice = await p.select({
+      message: "Starter template",
+      options: [
+        { label: "Blank", value: null, hint: "empty schema, no demo content" },
+        ...starterOptions.map(({ label, value, hint }) => ({
+          label,
+          value,
+          hint,
+        })),
+      ],
+    });
+    if (p.isCancel(choice)) cancelSetup();
+    starter = choice;
+  }
+
+  // 3. Distribution mode — package is the recommended default; embedded stays
+  // first-class for teams that want to own and modify the runtime source.
+  const mode =
+    flags.mode ??
+    (await p.select({
+      message: "How do you want the CMS runtime?",
+      options: [
+        {
+          label: "Package",
+          value: "package",
+          hint: "@kidecms/core dependency",
+        },
+        {
+          label: "Embedded",
+          value: "embedded",
+          hint: "full CMS source in src/cms/, yours to modify",
+        },
+      ],
+    }));
+
+  if (p.isCancel(mode)) cancelSetup();
+
+  // 4. Deploy target
+  const target =
+    flags.target ??
+    (await p.select({
+      message: "Where will you deploy?",
+      options: [
+        { label: "Local / Node.js", value: "local" },
+        { label: "Cloudflare", value: "cloudflare" },
+      ],
+    }));
+
+  if (p.isCancel(target)) cancelSetup();
+
+  // Seeding runs at scaffold time and needs the local db adapter — the
+  // Cloudflare adapter needs Worker bindings, so the question is local-only.
+  let seedRequested = false;
+  if (starter && target === "local") {
+    if (flags.seed !== undefined) {
+      seedRequested = flags.seed;
+    } else {
+      const seedChoice = await p.confirm({
+        message: "Seed example content?",
+        initialValue: true,
+      });
+      if (p.isCancel(seedChoice)) cancelSetup();
+      seedRequested = seedChoice;
+    }
+  }
+
+  s.start(`Configuring project (using ${pm.name})`);
+
+  // Apply the starter overlay — project-owned files copied over the barebone
+  // base. starter.json is manifest metadata, not project content.
+  if (starter) {
+    cpSync(path.join(startersDir, starter), projectDir, { recursive: true });
+    rmSync(path.join(projectDir, "starter.json"), { force: true });
+  }
+  rmSync(startersDir, { recursive: true, force: true });
 
   // Both modes scaffold the same template at the same tag; package mode then
   // deletes the managed runtime dirs and swaps the workspace link for the
@@ -404,6 +533,7 @@ async function main() {
     commit: templateCommit,
     target,
     mode,
+    starter: starter ?? null,
     corePath: "src/cms",
     scaffoldedAt: new Date().toISOString(),
     createKideApp: cliVersion,
@@ -471,7 +601,7 @@ async function main() {
       // gh not installed or not authenticated — skip the prompt
     }
 
-    if (ghAvailable) {
+    if (ghAvailable && !flags.noGithub) {
       const createRepo = await p.confirm({
         message: "Create a GitHub repository for this project?",
         initialValue: false,
@@ -567,6 +697,21 @@ async function main() {
     s.stop("Schema generation failed — run `cms:generate` manually");
   }
 
+  // --- Seed starter content (local target only) ---
+
+  if (starter && seedRequested && target === "local") {
+    s.start("Seeding example content");
+    try {
+      await runAsync(`${pm.run} cms:push`, projectDir);
+      await runAsync(`${pm.exec} kide seed`, projectDir);
+      s.stop("Example content seeded");
+    } catch {
+      s.stop(
+        "Seeding failed — run `pnpm cms:push && pnpm cms:seed` manually",
+      );
+    }
+  }
+
   // --- Cloudflare resource setup ---
 
   const cf = {
@@ -577,11 +722,14 @@ async function main() {
     url: null,
   };
   if (target === "cloudflare") {
-    const setupNow = await p.confirm({
-      message:
-        "Set up Cloudflare resources now? (creates D1 database and R2 bucket)",
-      initialValue: true,
-    });
+    const setupNow =
+      flags.noCloudflareSetup === true
+        ? false
+        : await p.confirm({
+            message:
+              "Set up Cloudflare resources now? (creates D1 database and R2 bucket)",
+            initialValue: true,
+          });
 
     if (!p.isCancel(setupNow) && setupNow) {
       // Check wrangler authentication
@@ -757,10 +905,12 @@ async function main() {
   // --- Done ---
 
   if (target === "local") {
-    const startDev = await p.confirm({
-      message: "Start the dev server now?",
-      initialValue: true,
-    });
+    const startDev = flags.noDev
+      ? false
+      : await p.confirm({
+          message: "Start the dev server now?",
+          initialValue: true,
+        });
 
     if (!p.isCancel(startDev) && startDev) {
       p.outro("Starting dev server...");
@@ -779,21 +929,19 @@ async function main() {
     }
   } else {
     if (cf.deployed && cf.url) {
-      p.note(
-        [
-          `Live at: ${cf.url}`,
-          `Admin:   ${cf.url}/admin`,
-          "",
-          `cd ${projectName}`,
-          "",
-          "Local development:",
-          `  ${pm.run} dev`,
-          "",
-          "Redeploy:",
-          "  pnpm run deploy",
-        ].join("\n"),
-        "🎉 Your Kide CMS is live",
-      );
+      const liveLines = [
+        `Live at: ${cf.url}`,
+        `Admin:   ${cf.url}/admin`,
+        "",
+        `cd ${projectName}`,
+        "",
+        "Local development:",
+        `  ${pm.run} dev`,
+        "",
+        "Redeploy:",
+        "  pnpm run deploy",
+      ];
+      p.note(liveLines.join("\n"), "🎉 Your Kide CMS is live");
       p.outro("Project created!");
     } else {
       const lines = [`cd ${projectName}`];

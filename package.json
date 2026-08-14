@@ -9,7 +9,8 @@
     "create-kide-app": "./index.js"
   },
   "scripts": {
-    "release": "npm version patch && git push --follow-tags && npm publish"
+    "release": "npm version patch && git push --follow-tags && npm publish",
+    "release:minor": "npm version minor && git push --follow-tags && npm publish"
   },
   "files": [
     "index.js"

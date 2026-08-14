@@ -11,10 +11,29 @@ pnpm create kide-app my-project
 The CLI asks for:
 
 1. **Project name** — directory to create
-2. **Distribution mode** — Package (recommended: thin project + `@kidecms/core` npm dependency; `pnpm exec kide eject` converts to embedded later, one-way) or Embedded (full CMS source in `src/cms/`, yours to modify)
-3. **Deploy target** — Local/Node.js or Cloudflare
+2. **Starter template** — Blank (default: one `pages` collection, no demo content) or a starter shipped with the template release, e.g. Marketing site (pages with blocks, blog, menu, contact form). Starters can seed example content into the local database.
+3. **Distribution mode** — Package (recommended: thin project + `@kidecms/core` npm dependency; `pnpm exec kide eject` converts to embedded later, one-way) or Embedded (full CMS source in `src/cms/`, yours to modify)
+4. **Deploy target** — Local/Node.js or Cloudflare
 
-Every project starts bare-bones: one `pages` collection (`title`, `slug`, `body`) and a minimal public page — no demo content, no seeds.
+## Non-interactive use
+
+Every prompt can be answered with a flag; supplied answers skip their prompts.
+
+```bash
+pnpm create kide-app my-app --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
+```
+
+| Flag | Values |
+| ---- | ------ |
+| `--starter=` | `blank` or a starter name from the template release |
+| `--seed` / `--no-seed` | Seed example content (local target only) |
+| `--mode=` | `package` or `embedded` |
+| `--target=` | `local` or `cloudflare` |
+| `--no-github` | Skip the GitHub repo prompt |
+| `--no-dev` | Skip the dev-server prompt |
+| `--no-cloudflare-setup` | Skip Cloudflare resource provisioning |
+
+The template repo can be overridden with the `KIDE_TEMPLATE_REPO` env var (forks, local testing).
 
 ## What it does
 
