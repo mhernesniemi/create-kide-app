@@ -340,6 +340,27 @@ async function main() {
     }
   }
 
+  // The npm artifact publishes after the template tag (CI runs the release gate
+  // first) — a package-mode scaffold in that window would fail install with a
+  // missing version. Fail early with a clear message instead.
+  if (mode === "package") {
+    const clonedCorePkg = path.join(projectDir, "src/cms/package.json");
+    const clonedCoreVersion = existsSync(clonedCorePkg)
+      ? JSON.parse(readFileSync(clonedCorePkg, "utf-8")).version
+      : null;
+    if (clonedCoreVersion) {
+      try {
+        execSync(`npm view @kidecms/core@${clonedCoreVersion} version`, {
+          stdio: "pipe",
+        });
+      } catch {
+        cancelSetup(
+          `@kidecms/core@${clonedCoreVersion} is not on npm yet — if this release was just tagged, publishing may still be running. Retry in a few minutes, or choose Embedded mode.`,
+        );
+      }
+    }
+  }
+
   s.start(`Configuring project (using ${pm.name})`);
 
   // Apply the starter overlay — project-owned files copied over the barebone
@@ -732,32 +753,50 @@ async function main() {
           });
 
     if (!p.isCancel(setupNow) && setupNow) {
-      // Check wrangler authentication
-      let authenticated = false;
+      // A missing wrangler binary (e.g. dependency install failed) must not be
+      // misread as "not logged in" — check presence before authentication.
+      let wranglerAvailable = false;
       try {
-        execSync(`${pm.exec} wrangler whoami`, {
+        execSync(`${pm.exec} wrangler --version`, {
           cwd: projectDir,
           stdio: "pipe",
         });
-        authenticated = true;
+        wranglerAvailable = true;
       } catch {
         p.note(
-          "You need to log in to Cloudflare first.",
-          "Wrangler login required",
+          "wrangler is not installed — dependency install may have failed.\nRun `pnpm install`, then finish the setup steps listed below.",
+          "Wrangler missing",
         );
-        const doLogin = await p.confirm({
-          message: "Open browser to log in?",
-          initialValue: true,
-        });
-        if (!p.isCancel(doLogin) && doLogin) {
-          try {
-            execSync(`${pm.exec} wrangler login`, {
-              cwd: projectDir,
-              stdio: "inherit",
-            });
-            authenticated = true;
-          } catch {
-            s.stop("Login failed");
+      }
+
+      // Check wrangler authentication
+      let authenticated = false;
+      if (wranglerAvailable) {
+        try {
+          execSync(`${pm.exec} wrangler whoami`, {
+            cwd: projectDir,
+            stdio: "pipe",
+          });
+          authenticated = true;
+        } catch {
+          p.note(
+            "You need to log in to Cloudflare first.",
+            "Wrangler login required",
+          );
+          const doLogin = await p.confirm({
+            message: "Open browser to log in?",
+            initialValue: true,
+          });
+          if (!p.isCancel(doLogin) && doLogin) {
+            try {
+              execSync(`${pm.exec} wrangler login`, {
+                cwd: projectDir,
+                stdio: "inherit",
+              });
+              authenticated = true;
+            } catch {
+              s.stop("Login failed");
+            }
           }
         }
       }
