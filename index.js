@@ -55,8 +55,10 @@ const REPO =
 const CLEANUP = [
   "docs",
   "CLAUDE.md",
+  "CONTRIBUTING.md",
   ".claude/settings.local.json",
   ".github/workflows", // upstream CI + @kidecms/core release pipeline — wrong in any scaffold
+  ".github/pull_request_template.md", // Kide's own contribution checklist — wrong in any scaffold
   "scripts/verify-cloudflare.mjs", // needs the adapters/ overlay, which every scaffold deletes
   "data",
   ".cms-data",
