@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import * as p from "@clack/prompts";
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -24,6 +24,27 @@ const runAsync = (cmd, cwd) =>
       if (code === 0) resolve(stdout);
       else {
         const err = new Error(`Command failed: ${cmd}`);
+        err.stderr = stderr;
+        err.stdout = stdout;
+        reject(err);
+      }
+    });
+  });
+
+// Argv-based variant: no shell, so untrusted values (like the project directory)
+// are passed as single arguments and can never be reinterpreted as commands.
+const runFileAsync = (file, args, cwd) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(file, args, { cwd });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(stdout);
+      else {
+        const err = new Error(`Command failed: ${file} ${args.join(" ")}`);
         err.stderr = stderr;
         err.stdout = stdout;
         reject(err);
@@ -97,13 +118,17 @@ const validateProjectName = (value) => {
 
 // Resolve the latest release tag (v-prefixed semver) so scaffolds pin to a
 // deliberate release instead of whatever HEAD happens to be. Returns null when
-// the repo has no tags (falls back to the default branch).
-const resolveLatestTag = () => {
+// the repo has no tags (falls back to the default branch). Async so the
+// "Downloading template" spinner keeps animating during the network call.
+const resolveLatestTag = async () => {
   try {
-    const output = execSync(
-      `git ls-remote --tags --sort=-v:refname ${REPO} "v*"`,
-      { stdio: "pipe" },
-    ).toString();
+    const output = await runFileAsync("git", [
+      "ls-remote",
+      "--tags",
+      "--sort=-v:refname",
+      REPO,
+      "v*",
+    ]);
     for (const line of output.split("\n")) {
       const match = line.match(/refs\/tags\/(v[0-9][^^\s]*)$/);
       if (match) return match[1];
@@ -195,27 +220,14 @@ async function main() {
 
   s.start("Downloading template");
 
-  const templateRef = resolveLatestTag();
+  const templateRef = await resolveLatestTag();
   let templateCommit = null;
 
   try {
     const branchArgs = templateRef ? ["--branch", templateRef] : [];
-    // execFileSync, not execSync: no shell, so projectDir is passed as one argv entry
-    // and can never be reinterpreted as a command regardless of what it contains.
-    execFileSync(
-      "git",
-      ["clone", "--depth", "1", ...branchArgs, REPO, projectDir],
-      {
-        stdio: "pipe",
-      },
-    );
+    await runFileAsync("git", ["clone", "--depth", "1", ...branchArgs, REPO, projectDir]);
     try {
-      templateCommit = execSync("git rev-parse HEAD", {
-        cwd: projectDir,
-        stdio: "pipe",
-      })
-        .toString()
-        .trim();
+      templateCommit = (await runFileAsync("git", ["rev-parse", "HEAD"], projectDir)).trim();
     } catch {
       // best-effort — stamp without a commit hash
     }
