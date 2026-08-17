@@ -5,6 +5,7 @@ import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -60,6 +61,7 @@ const CLEANUP = [
   ".github/workflows", // upstream CI + @kidecms/core release pipeline — wrong in any scaffold
   ".github/pull_request_template.md", // Kide's own contribution checklist — wrong in any scaffold
   "scripts/verify-cloudflare.mjs", // needs the adapters/ overlay, which every scaffold deletes
+  "scripts/dev-preview.mjs", // needs starters/ (deleted below) and symlinks back into this repo
   "data",
   ".cms-data",
   "dist",
@@ -95,22 +97,42 @@ const validateProjectName = (value) => {
 };
 
 // Resolve the latest release tag (v-prefixed semver) so scaffolds pin to a
-// deliberate release instead of whatever HEAD happens to be. Returns null when
-// the repo has no tags (falls back to the default branch).
+// deliberate release instead of whatever HEAD happens to be. Also captures the
+// tag's commit SHA from the same listing (peeled `^{}` entries win, so annotated
+// tags resolve to the commit, not the tag object). Returns null when the repo
+// has no tags (falls back to the default branch).
 const resolveLatestTag = () => {
   try {
     const output = execSync(
       `git ls-remote --tags --sort=-v:refname ${REPO} "v*"`,
       { stdio: "pipe" },
     ).toString();
+    let tag = null;
+    let commit = null;
     for (const line of output.split("\n")) {
-      const match = line.match(/refs\/tags\/(v[0-9][^^\s]*)$/);
-      if (match) return match[1];
+      const match = line.match(/^([0-9a-f]{40})\trefs\/tags\/(v[0-9][^\s^]*)(\^\{\})?$/);
+      if (!match) continue;
+      if (!tag) {
+        tag = match[2];
+        commit = match[1];
+      }
+      if (match[2] === tag && match[3]) commit = match[1];
     }
+    if (tag) return { tag, commit };
   } catch {
     // Network/git hiccup — fall back to default branch
   }
   return null;
+};
+
+// GitHub serves any tag as a single gzipped tarball — one HTTP request instead of
+// git protocol negotiation, and no .git dir to delete afterwards. Only applicable
+// for github.com remotes (KIDE_TEMPLATE_REPO may point anywhere, incl. file://).
+const githubTarballUrl = (tag) => {
+  const match = REPO.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
+  return match && tag
+    ? `https://codeload.github.com/${match[1]}/${match[2]}/tar.gz/refs/tags/${tag}`
+    : null;
 };
 
 // --- CLI flags (non-interactive use: CI, agents, testing) ---
@@ -194,36 +216,58 @@ async function main() {
 
   s.start("Downloading template");
 
-  const templateRef = resolveLatestTag();
-  let templateCommit = null;
+  const resolved = resolveLatestTag();
+  const templateRef = resolved?.tag ?? null;
+  let templateCommit = resolved?.commit ?? null;
 
-  try {
-    const branchArgs = templateRef ? ["--branch", templateRef] : [];
-    // execFileSync, not execSync: no shell, so projectDir is passed as one argv entry
-    // and can never be reinterpreted as a command regardless of what it contains.
-    execFileSync(
-      "git",
-      ["clone", "--depth", "1", ...branchArgs, REPO, projectDir],
-      {
-        stdio: "pipe",
-      },
-    );
+  // Fast path: single tarball request. Falls back to git clone on any failure.
+  let downloaded = false;
+  const tarballUrl = githubTarballUrl(templateRef);
+  if (tarballUrl) {
     try {
-      templateCommit = execSync("git rev-parse HEAD", {
-        cwd: projectDir,
-        stdio: "pipe",
-      })
-        .toString()
-        .trim();
+      const response = await fetch(tarballUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const tarball = Buffer.from(await response.arrayBuffer());
+      mkdirSync(projectDir, { recursive: true });
+      execFileSync("tar", ["-xzf", "-", "--strip-components=1", "-C", projectDir], {
+        input: tarball,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      downloaded = true;
     } catch {
-      // best-effort — stamp without a commit hash
+      rmSync(projectDir, { recursive: true, force: true });
     }
-    rmSync(path.join(projectDir, ".git"), { recursive: true, force: true });
-  } catch {
-    rmSync(projectDir, { recursive: true, force: true });
-    s.stop("Failed to download template.");
-    p.cancel("Check your network connection.");
-    process.exit(1);
+  }
+
+  if (!downloaded) {
+    try {
+      const branchArgs = templateRef ? ["--branch", templateRef] : [];
+      // execFileSync, not execSync: no shell, so projectDir is passed as one argv entry
+      // and can never be reinterpreted as a command regardless of what it contains.
+      execFileSync(
+        "git",
+        ["clone", "--depth", "1", ...branchArgs, REPO, projectDir],
+        {
+          stdio: "pipe",
+        },
+      );
+      try {
+        templateCommit = execSync("git rev-parse HEAD", {
+          cwd: projectDir,
+          stdio: "pipe",
+        })
+          .toString()
+          .trim();
+      } catch {
+        // best-effort — stamp without a commit hash
+      }
+      rmSync(path.join(projectDir, ".git"), { recursive: true, force: true });
+    } catch {
+      rmSync(projectDir, { recursive: true, force: true });
+      s.stop("Failed to download template.");
+      p.cancel("Check your network connection.");
+      process.exit(1);
+    }
   }
 
   // Remove files that shouldn't be in the scaffold
@@ -457,6 +501,8 @@ async function main() {
 
   // Upstream-repo tooling that no scaffold can run (needs the deleted adapters/ overlay).
   delete pkg.scripts["verify:cloudflare"];
+  // Needs starters/ (deleted above) and symlinks back into the template repo — repo-only.
+  delete pkg.scripts["dev:preview"];
 
   if (mode === "package" && pkg.dependencies["@kidecms/core"]) {
     pkg.dependencies["@kidecms/core"] = `^${coreVersion}`;
