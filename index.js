@@ -735,12 +735,25 @@ async function main() {
     s.stop("Schema generation failed — run `cms:generate` manually");
   }
 
+  // --- Apply schema to the local database (local target only; Cloudflare's D1
+  // needs Worker bindings). Without this, only `pnpm dev` (which pushes on boot)
+  // works out of the box — `pnpm build && pnpm preview` would hit a table-less DB.
+
+  if (target === "local") {
+    s.start("Preparing database");
+    try {
+      await runAsync(`${pm.run} cms:push`, projectDir);
+      s.stop("Database ready");
+    } catch {
+      s.stop("Database push failed — run `pnpm cms:push` manually");
+    }
+  }
+
   // --- Seed starter content (local target only) ---
 
   if (starter && seedRequested && target === "local") {
     s.start("Seeding example content");
     try {
-      await runAsync(`${pm.run} cms:push`, projectDir);
       await runAsync(`${pm.exec} kide seed`, projectDir);
       s.stop("Example content seeded");
     } catch {
