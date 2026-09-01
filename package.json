@@ -1,6 +1,6 @@
 {
   "name": "create-kide-app",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "Scaffold a new Kide CMS project",
   "author": "Matti Hernesniemi",
   "license": "MIT",

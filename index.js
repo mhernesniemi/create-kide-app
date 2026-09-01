@@ -477,6 +477,10 @@ async function main() {
     pkg.dependencies["@kidecms/core"] = `^${coreVersion}`;
     delete pkg.scripts["verify:pack"];
     delete pkg.scripts["verify:package"];
+    // Package-mode upgrades are `pnpm add @kidecms/core@latest` — the patch
+    // flow (and its .kide-version stamp) only exists after `kide eject`.
+    delete pkg.scripts["cms:upgrade"];
+    delete pkg.scripts["cms:restore"];
     // The runtime (and its worker tests + Cloudflare type profile) now lives in
     // node_modules — keep check/test scoped to project code, and let vitest pass
     // until the project has tests of its own.
@@ -564,22 +568,27 @@ async function main() {
   } catch {
     // best-effort
   }
-  const versionStamp = {
-    template: REPO.replace(/\.git$/, ""),
-    kideVersion: coreVersion ?? pkg.version ?? null,
-    ref: templateRef ?? "HEAD",
-    commit: templateCommit,
-    target,
-    mode,
-    starter: starter ?? null,
-    corePath: "src/cms",
-    scaffoldedAt: new Date().toISOString(),
-    createKideApp: cliVersion,
-  };
-  writeFileSync(
-    path.join(projectDir, ".kide-version"),
-    `${JSON.stringify(versionStamp, null, 2)}\n`,
-  );
+  // Package mode gets no version stamp: the installed @kidecms/core version is
+  // the only baseline that matters, and `kide eject` writes the stamp when the
+  // patch-upgrade flow starts existing.
+  if (mode === "embedded") {
+    const versionStamp = {
+      template: REPO.replace(/\.git$/, ""),
+      kideVersion: coreVersion ?? pkg.version ?? null,
+      ref: templateRef ?? "HEAD",
+      commit: templateCommit,
+      target,
+      mode,
+      starter: starter ?? null,
+      corePath: "src/cms",
+      scaffoldedAt: new Date().toISOString(),
+      createKideApp: cliVersion,
+    };
+    writeFileSync(
+      path.join(projectDir, ".kide-version"),
+      `${JSON.stringify(versionStamp, null, 2)}\n`,
+    );
+  }
 
   // Wire up the local MCP server so Claude Code (and other MCP clients that read
   // a project-scoped `.mcp.json`) discover it automatically — no manual
