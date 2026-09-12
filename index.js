@@ -164,7 +164,7 @@ const parseArgs = (argv) => {
 // --- Main ---
 
 async function main() {
-  p.intro("🪐 Create Kide CMS Project");
+  p.intro("\x1b[34m▣\x1b[39m Create Kide CMS Project");
 
   const { flags, positional } = parseArgs(process.argv.slice(2));
   if (flags.unknown) {
