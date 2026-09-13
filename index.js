@@ -59,7 +59,9 @@ const pm = {
   exec: "pnpm exec",
   dlx: "pnpm dlx",
   run: "pnpm",
-  install: "pnpm install",
+  // The scaffold rewrites package.json, so the template lockfile never matches; pnpm
+  // defaults to --frozen-lockfile when CI=true and would refuse to install.
+  install: "pnpm install --no-frozen-lockfile",
 };
 
 // --- Template repo ---
@@ -649,8 +651,10 @@ async function main() {
   try {
     await runAsync(pm.install, projectDir);
     s.stop("Dependencies installed");
-  } catch {
+  } catch (err) {
     s.stop(`${pm.install} failed — run it manually`);
+    if (err.stderr) console.error(err.stderr.slice(-1500));
+    if (err.stdout) console.error(err.stdout.slice(-1500));
   }
 
   // --- Initialize git repository ---
@@ -981,10 +985,11 @@ async function main() {
             );
             cf.migrationsApplied = true;
             s.stop("Migrations applied");
-          } catch {
+          } catch (err) {
             s.stop(
               "Migration apply failed — run manually with: wrangler d1 migrations apply --remote",
             );
+            if (err.stderr) console.error(err.stderr.toString().slice(-800));
           }
         }
 
