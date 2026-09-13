@@ -142,6 +142,8 @@ const resolveLatestTag = async () => {
 // --- CLI flags (non-interactive use: CI, agents, testing) ---
 // Any prompt whose answer is supplied by a flag is skipped. Example:
 //   create-kide-app my-app --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
+// Without a terminal (CI, agents) a required answer must come from a flag; a missing one
+// fails with the flag to pass instead of stopping at a prompt nobody can answer.
 
 const parseArgs = (argv) => {
   const flags = {};
@@ -151,7 +153,10 @@ const parseArgs = (argv) => {
     else if (arg === "--no-seed") flags.seed = false;
     else if (arg === "--no-github") flags.noGithub = true;
     else if (arg === "--no-dev") flags.noDev = true;
-    else if (arg === "--no-cloudflare-setup") flags.noCloudflareSetup = true;
+    else if (arg === "--cloudflare-setup") flags.cloudflareSetup = true;
+    else if (arg === "--no-cloudflare-setup") flags.cloudflareSetup = false;
+    else if (arg === "--deploy") flags.deploy = true;
+    else if (arg === "--no-deploy") flags.deploy = false;
     else if (arg.startsWith("--starter=")) flags.starter = arg.slice("--starter=".length);
     else if (arg.startsWith("--mode=")) flags.mode = arg.slice("--mode=".length);
     else if (arg.startsWith("--target=")) flags.target = arg.slice("--target=".length);
@@ -159,6 +164,26 @@ const parseArgs = (argv) => {
     else positional.push(arg);
   }
   return { flags, positional };
+};
+
+const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+// Without a terminal, every answer that would otherwise be prompted for must come from a
+// flag. Checked before cloning so a missing flag fails fast and leaves nothing behind.
+const missingAnswers = (flags, positional) => {
+  const missing = [];
+  if (!positional[0]) missing.push("the project name as the first argument");
+  if (flags.starter === undefined) missing.push("--starter=<blank | starter name>");
+  if (flags.mode === undefined) missing.push("--mode=package | embedded");
+  if (flags.target === undefined) missing.push("--target=local | cloudflare");
+  if (flags.target === "local" && flags.starter && flags.starter !== "blank" && flags.seed === undefined) {
+    missing.push("--seed or --no-seed");
+  }
+  if (flags.target === "cloudflare") {
+    if (flags.cloudflareSetup === undefined) missing.push("--cloudflare-setup or --no-cloudflare-setup");
+    else if (flags.cloudflareSetup && flags.deploy === undefined) missing.push("--deploy or --no-deploy");
+  }
+  return missing;
 };
 
 // --- Main ---
@@ -178,6 +203,14 @@ async function main() {
   if (flags.target !== undefined && !["local", "cloudflare"].includes(flags.target)) {
     p.cancel(`--target must be "local" or "cloudflare".`);
     process.exit(1);
+  }
+
+  if (!interactive) {
+    const missing = missingAnswers(flags, positional);
+    if (missing.length > 0) {
+      p.cancel(`No terminal to prompt. Pass:\n  ${missing.join("\n  ")}`);
+      process.exit(1);
+    }
   }
 
   // 1. Project name
@@ -648,7 +681,8 @@ async function main() {
       // gh not installed or not authenticated — skip the prompt
     }
 
-    if (ghAvailable && !flags.noGithub) {
+    // Creating a repo needs a name and visibility; without a terminal it is skipped.
+    if (ghAvailable && !flags.noGithub && interactive) {
       const createRepo = await p.confirm({
         message: "Create a GitHub repository for this project?",
         initialValue: false,
@@ -783,8 +817,8 @@ async function main() {
   };
   if (target === "cloudflare") {
     const setupNow =
-      flags.noCloudflareSetup === true
-        ? false
+      flags.cloudflareSetup !== undefined
+        ? flags.cloudflareSetup
         : await p.confirm({
             message:
               "Set up Cloudflare resources now? (creates D1 database and R2 bucket)",
@@ -819,13 +853,17 @@ async function main() {
           authenticated = true;
         } catch {
           p.note(
-            "You need to log in to Cloudflare first.",
+            interactive
+              ? "You need to log in to Cloudflare first."
+              : "Not logged in to Cloudflare. Run `wrangler login` (or set CLOUDFLARE_API_TOKEN), then finish the setup steps listed below.",
             "Wrangler login required",
           );
-          const doLogin = await p.confirm({
-            message: "Open browser to log in?",
-            initialValue: true,
-          });
+          const doLogin = interactive
+            ? await p.confirm({
+                message: "Open browser to log in?",
+                initialValue: true,
+              })
+            : false;
           if (!p.isCancel(doLogin) && doLogin) {
             try {
               execSync(`${pm.exec} wrangler login`, {
@@ -952,10 +990,12 @@ async function main() {
 
         // Deploy to Cloudflare
         if (cf.migrationsApplied) {
-          const doDeploy = await p.confirm({
-            message: "Deploy to Cloudflare now?",
-            initialValue: true,
-          });
+          const doDeploy =
+            flags.deploy ??
+            (await p.confirm({
+              message: "Deploy to Cloudflare now?",
+              initialValue: true,
+            }));
           if (!p.isCancel(doDeploy) && doDeploy) {
             s.start("Building and deploying to Cloudflare");
             try {
@@ -983,7 +1023,8 @@ async function main() {
   // --- Done ---
 
   if (target === "local") {
-    const startDev = flags.noDev
+    // Without a terminal the dev server would never return control; skip it.
+    const startDev = flags.noDev || !interactive
       ? false
       : await p.confirm({
           message: "Start the dev server now?",

@@ -17,21 +17,23 @@ The CLI asks for:
 
 ## Non-interactive use
 
-Every prompt can be answered with a flag; supplied answers skip their prompts.
+Every prompt can be answered with a flag; supplied answers skip their prompts. Without a terminal (CI, agents) every answer must be supplied — a missing one fails with the flags to pass, before anything is created.
 
 ```bash
 pnpm create kide-app my-app --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
+pnpm create kide-app my-app --starter=blank --mode=package --target=cloudflare --cloudflare-setup --deploy --no-github
 ```
 
 | Flag | Values |
 | ---- | ------ |
 | `--starter=` | `blank` or a starter name from the template release |
-| `--seed` / `--no-seed` | Seed example content (local target only) |
+| `--seed` / `--no-seed` | Seed example content (local target with a starter) |
 | `--mode=` | `package` or `embedded` |
 | `--target=` | `local` or `cloudflare` |
-| `--no-github` | Skip the GitHub repo prompt |
-| `--no-dev` | Skip the dev-server prompt |
-| `--no-cloudflare-setup` | Skip Cloudflare resource provisioning |
+| `--cloudflare-setup` / `--no-cloudflare-setup` | Create the D1 database and R2 bucket and apply migrations (Cloudflare target) |
+| `--deploy` / `--no-deploy` | Deploy after setup (Cloudflare target) |
+| `--no-github` | Skip the GitHub repo prompt (skipped without a terminal) |
+| `--no-dev` | Skip the dev-server prompt (skipped without a terminal) |
 
 The template repo can be overridden with the `KIDE_TEMPLATE_REPO` env var (forks, local testing).
 
