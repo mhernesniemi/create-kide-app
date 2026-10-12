@@ -578,7 +578,7 @@ async function main() {
     );
     writeFileSync(path.join(projectDir, "wrangler.toml"), wranglerContent);
 
-    pkg.devDependencies.wrangler = "^4.121.0";
+    pkg.devDependencies.wrangler = "^4.149.0";
 
     pkg.scripts.dev = "astro dev";
     pkg.scripts.build = "astro build";
