@@ -49,7 +49,7 @@ The template repo can be overridden with the `KIDE_TEMPLATE_REPO` env var (forks
 
 ## Requirements
 
-- Node.js >= 22.12.0
+- Node.js >= 22.23.4
 - `pnpm` installed
 - `git` on PATH
 - Optional: [`gh` CLI](https://cli.github.com) authenticated (`gh auth login`) for GitHub repo creation

@@ -588,14 +588,14 @@ async function main() {
       "astro build && wrangler deploy --config dist/server/wrangler.json";
 
     // @cloudflare/vite-plugin statically imports module.registerHooks (Node
-    // >=22.15), and Node >=23 changes the native ABI (breaking the prebuilt
-    // better-sqlite3 used for local D1). So pin Node 22.18–22.x and guard `dev`
-    // with a friendly check instead of a cryptic ESM "registerHooks" crash.
-    pkg.engines = { ...(pkg.engines ?? {}), node: ">=22.18.0" };
+    // >=22.15), Astro needs >=22.23.4, and Node >=23 changes the native ABI (breaking
+    // the prebuilt better-sqlite3 used for local D1). So pin Node 22.23.4–22.x and guard
+    // `dev` with a friendly check instead of a cryptic crash.
+    pkg.engines = { ...(pkg.engines ?? {}), node: ">=22.23.4" };
     pkg.scripts.predev =
       `node -e "const v=process.versions.node.split('.').map(Number);` +
-      `if(v[0]<22||(v[0]===22&&v[1]<18)||v[0]>=23){` +
-      `console.error('\\n[kide] Cloudflare dev needs Node 22.18+ (22.x). You have '+process.version+'.\\n` +
+      `if(v[0]<22||(v[0]===22&&(v[1]<23||(v[1]===23&&v[2]<4)))||v[0]>=23){` +
+      `console.error('\\n[kide] Cloudflare dev needs Node 22.23.4+ (22.x). You have '+process.version+'.\\n` +
       `       Run: nvm install 22 && nvm use   (or use fnm/volta)\\n');` +
       `process.exit(1)}"`;
     writeFileSync(path.join(projectDir, ".nvmrc"), "22\n");
