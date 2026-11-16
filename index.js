@@ -509,6 +509,16 @@ async function main() {
       recursive: true,
       force: true,
     });
+  } else {
+    const envPath = path.join(projectDir, ".env");
+    if (!existsSync(envPath)) {
+      const examplePath = path.join(projectDir, ".env.example");
+      const example = existsSync(examplePath) ? readFileSync(examplePath, "utf-8") : "";
+      const env = /^KIDE_SECRET=.*$/m.test(example)
+        ? example.replace(/^KIDE_SECRET=.*$/m, `KIDE_SECRET=${authSecret}`)
+        : `${example}${example && !example.endsWith("\n") ? "\n" : ""}KIDE_SECRET=${authSecret}\n`;
+      writeFileSync(envPath, env);
+    }
   }
 
   const pkgPath = path.join(projectDir, "package.json");
@@ -1057,7 +1067,7 @@ async function main() {
 
   if (target === "local") {
     p.log.info(
-      "Production deploys need KIDE_SECRET in the environment — generate one with `openssl rand -base64 32`.",
+      "A KIDE_SECRET was generated in .env — set the same value in your production environment.",
     );
     // Without a terminal the dev server would never return control; skip it.
     const startDev = flags.noDev || !interactive
