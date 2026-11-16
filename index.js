@@ -559,7 +559,7 @@ async function main() {
 
   if (target === "cloudflare") {
     delete pkg.dependencies["@astrojs/node"];
-    pkg.dependencies["@astrojs/cloudflare"] = "~14.1.7";
+    pkg.dependencies["@astrojs/cloudflare"] = "~14.4.8";
 
     // Move better-sqlite3 to devDependencies — drizzle-kit needs it to push schema to local D1
     if (pkg.dependencies["better-sqlite3"]) {
