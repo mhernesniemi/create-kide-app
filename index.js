@@ -477,7 +477,7 @@ async function main() {
   if (target === "cloudflare") {
     // `pnpm preview` runs a production build in wrangler, which reads local secrets
     // from .dev.vars — keep it out of git.
-    writeFileSync(path.join(projectDir, ".dev.vars"), `KIDE_AUTH_SECRET=${authSecret}\n`);
+    writeFileSync(path.join(projectDir, ".dev.vars"), `KIDE_SECRET=${authSecret}\n`);
     const gitignorePath = path.join(projectDir, ".gitignore");
     const gitignore = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
     if (!/^\.dev\.vars$/m.test(gitignore)) {
@@ -1037,13 +1037,13 @@ async function main() {
               s.start("Setting the admin sign-in secret");
               try {
                 execSync(
-                  `${pm.exec} wrangler secret put KIDE_AUTH_SECRET --config dist/server/wrangler.json`,
+                  `${pm.exec} wrangler secret put KIDE_SECRET --config dist/server/wrangler.json`,
                   { cwd: projectDir, input: authSecret, stdio: ["pipe", "pipe", "pipe"] },
                 );
                 cf.secretSet = true;
                 s.stop("Admin sign-in secret set");
               } catch (err) {
-                s.stop("Could not set KIDE_AUTH_SECRET — set it manually (see below)");
+                s.stop("Could not set KIDE_SECRET — set it manually (see below)");
                 if (err.stderr) console.error(err.stderr.toString().slice(-800));
               }
             }
@@ -1057,7 +1057,7 @@ async function main() {
 
   if (target === "local") {
     p.log.info(
-      "Production deploys need KIDE_AUTH_SECRET in the environment — generate one with `openssl rand -base64 32`.",
+      "Production deploys need KIDE_SECRET in the environment — generate one with `openssl rand -base64 32`.",
     );
     // Without a terminal the dev server would never return control; skip it.
     const startDev = flags.noDev || !interactive
@@ -1122,7 +1122,7 @@ async function main() {
       }
       if (!cf.secretSet) {
         remaining.push(
-          `  ${pm.dlx} wrangler secret put KIDE_AUTH_SECRET`,
+          `  ${pm.dlx} wrangler secret put KIDE_SECRET`,
           "  # paste the value from .dev.vars — admin sign-in needs it",
         );
       }
