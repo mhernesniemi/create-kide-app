@@ -80,6 +80,9 @@ const CLEANUP = [
   "docs",
   "CLAUDE.md",
   "CONTRIBUTING.md",
+  "CHANGELOG.md", // Kide's release history; upgrades go by .kide-version and `cms:upgrade`
+  "SECURITY.md", // points vulnerability reports at the Kide repo
+  "src/cms/README.md", // the @kidecms/core npm page
   ".claude/settings.local.json",
   ".github/workflows", // upstream CI + @kidecms/core release pipeline — wrong in any scaffold
   ".github/pull_request_template.md", // Kide's own contribution checklist — wrong in any scaffold
@@ -91,6 +94,42 @@ const CLEANUP = [
   ".astro",
   ".DS_Store",
 ];
+
+const projectReadme = (name, target, mode) =>
+  [
+    `# ${name}`,
+    "",
+    "Built with [Kide CMS](https://docs.kide.dev/) on Astro.",
+    "",
+    "## Develop",
+    "",
+    "```bash",
+    "pnpm install",
+    "pnpm dev",
+    "```",
+    "",
+    "The site runs at http://localhost:4321 and the admin at http://localhost:4321/admin.",
+    "",
+    "## Commands",
+    "",
+    "| Command | What it does |",
+    "| --- | --- |",
+    "| `pnpm dev` | Start the dev server |",
+    "| `pnpm build` | Build for production |",
+    "| `pnpm cms:push` | Apply collection changes to the database |",
+    "| `pnpm cms:describe` | Write the content model to `MODEL.md` |",
+    mode === "package"
+      ? "| `pnpm add @kidecms/core@latest` | Upgrade Kide |"
+      : "| `pnpm cms:upgrade <tag>` | Upgrade the embedded Kide core |",
+    "",
+    "Collections live in `src/cms/collections/` and are registered in `src/cms/cms.config.ts`.",
+    target === "cloudflare" ? "The project deploys to Cloudflare Workers with D1 and R2 (`wrangler.toml`)." : "",
+    "",
+    "Agents: start with [`AGENTS.md`](AGENTS.md).",
+    "",
+  ]
+    .filter((line, i, all) => line !== "" || all[i - 1] !== "")
+    .join("\n") + "\n";
 
 // Managed runtime dirs inside src/cms — the contents of the @kidecms/core
 // package. Deleted in package mode (the npm dependency provides them);
@@ -520,6 +559,9 @@ async function main() {
       writeFileSync(envPath, env);
     }
   }
+
+  // The template's README describes Kide itself; a project gets its own.
+  writeFileSync(path.join(projectDir, "README.md"), projectReadme(projectName, target, mode));
 
   const pkgPath = path.join(projectDir, "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
