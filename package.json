@@ -1,7 +1,7 @@
 {
   "name": "create-kide-app",
   "version": "0.10.0",
-  "description": "Scaffold a new Kide CMS project",
+  "description": "Scaffold a Kide CMS project for Astro or SvelteKit",
   "author": "Matti Hernesniemi",
   "license": "MIT",
   "type": "module",
@@ -21,9 +21,11 @@
   },
   "homepage": "https://github.com/mhernesniemi/kide-cms",
   "keywords": [
-    "astro",
-    "cms",
     "kide",
+    "cms",
+    "astro",
+    "sveltekit",
+    "vite",
     "create-app",
     "scaffold"
   ],
