@@ -72,6 +72,35 @@ const pm = {
 const REPO =
   process.env.KIDE_TEMPLATE_REPO ||
   "https://github.com/mhernesniemi/kide-cms.git";
+// Pins the template ref instead of the latest release tag (testing unreleased template changes).
+const TEMPLATE_REF = process.env.KIDE_TEMPLATE_REF || null;
+
+// The template repo's own devDependencies for its SvelteKit verifier; an Astro project has no use for them.
+const SVELTE_TOOLING = [
+  "@sveltejs/adapter-cloudflare",
+  "@sveltejs/adapter-node",
+  "@sveltejs/kit",
+  "@sveltejs/vite-plugin-svelte",
+  "prettier-plugin-svelte",
+  "svelte",
+  "vite",
+];
+
+// Applies an adapters/**/package.patch.json to package.json.
+const applyPackagePatch = (pkg, patch) => {
+  for (const section of ["dependencies", "devDependencies"]) {
+    pkg[section] ??= {};
+    for (const name of patch[section]?.remove ?? []) delete pkg[section][name];
+    Object.assign(pkg[section], patch[section]?.add ?? {});
+  }
+  for (const name of patch.devDependencies?.moveFromDependencies ?? []) {
+    if (!pkg.dependencies[name]) continue;
+    pkg.devDependencies[name] = pkg.dependencies[name];
+    delete pkg.dependencies[name];
+  }
+  Object.assign(pkg.scripts, patch.scripts ?? {});
+  for (const name of patch.removeScripts ?? []) delete pkg.scripts[name];
+};
 
 // Files from the kide-cms repo that shouldn't leak into scaffolded projects.
 // NOTE: `.claude/settings.local.json` is removed but `.claude/skills/` is kept,
@@ -90,6 +119,7 @@ const CLEANUP = [
   "components.json", // shadcn config for Kide's own admin components
   "renovate.json", // Kide's own dependency bot config
   "scripts/verify-cloudflare.mjs", // needs the adapters/ overlay, which every scaffold deletes
+  "scripts/verify-sveltekit.mjs", // assembles the SvelteKit target from adapters/, which every scaffold deletes
   "scripts/verify-starters.mjs", // checks starters/, which every scaffold deletes
   "scripts/verify-upgrade.mjs", // Kide's release check
   "scripts/dev-preview.mjs", // needs starters/ (deleted below) and symlinks back into this repo
@@ -100,11 +130,16 @@ const CLEANUP = [
   ".DS_Store",
 ];
 
-const projectReadme = (name, target, mode) =>
+const FRAMEWORKS = {
+  astro: { label: "Astro", port: 4321 },
+  sveltekit: { label: "SvelteKit", port: 5173 },
+};
+
+const projectReadme = (name, target, mode, framework) =>
   [
     `# ${name}`,
     "",
-    "Built with [Kide CMS](https://docs.kide.dev/) on Astro.",
+    `Built with [Kide CMS](https://docs.kide.dev/) on ${FRAMEWORKS[framework].label}.`,
     "",
     "## Develop",
     "",
@@ -113,7 +148,7 @@ const projectReadme = (name, target, mode) =>
     "pnpm dev",
     "```",
     "",
-    "The site runs at http://localhost:4321 and the admin at http://localhost:4321/admin.",
+    `The site runs at http://localhost:${FRAMEWORKS[framework].port} and the admin at http://localhost:${FRAMEWORKS[framework].port}/admin.`,
     "",
     "## Commands",
     "",
@@ -188,7 +223,7 @@ const resolveLatestTag = async () => {
 
 // --- CLI flags (non-interactive use: CI, agents, testing) ---
 // Any prompt whose answer is supplied by a flag is skipped. Example:
-//   create-kide-app my-app --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
+//   create-kide-app my-app --framework=astro --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
 // Without a terminal (CI, agents) a required answer must come from a flag; a missing one
 // fails with the flag to pass instead of stopping at a prompt nobody can answer.
 
@@ -205,6 +240,7 @@ const parseArgs = (argv) => {
     else if (arg === "--deploy") flags.deploy = true;
     else if (arg === "--no-deploy") flags.deploy = false;
     else if (arg.startsWith("--starter=")) flags.starter = arg.slice("--starter=".length);
+    else if (arg.startsWith("--framework=")) flags.framework = arg.slice("--framework=".length);
     else if (arg.startsWith("--mode=")) flags.mode = arg.slice("--mode=".length);
     else if (arg.startsWith("--target=")) flags.target = arg.slice("--target=".length);
     else if (arg.startsWith("--")) flags.unknown = arg;
@@ -245,6 +281,10 @@ async function main() {
   }
   if (flags.mode !== undefined && !["package", "embedded"].includes(flags.mode)) {
     p.cancel(`--mode must be "package" or "embedded".`);
+    process.exit(1);
+  }
+  if (flags.framework !== undefined && !Object.hasOwn(FRAMEWORKS, flags.framework)) {
+    p.cancel(`--framework must be "astro" or "sveltekit".`);
     process.exit(1);
   }
   if (flags.target !== undefined && !["local", "cloudflare"].includes(flags.target)) {
@@ -300,7 +340,7 @@ async function main() {
 
   s.start("Downloading template");
 
-  const templateRef = await resolveLatestTag();
+  const templateRef = TEMPLATE_REF ?? (await resolveLatestTag());
   let templateCommit = null;
 
   try {
@@ -333,7 +373,26 @@ async function main() {
     process.exit(0);
   };
 
-  // 2. Starter template — options come from starters/*/starter.json in the
+  // 2. Framework — offered when the cloned release ships the SvelteKit overlay.
+  // Without a terminal and without --framework, Astro (every release supports it).
+  const svelteKitAvailable = existsSync(path.join(projectDir, "adapters/sveltekit"));
+  if (flags.framework === "sveltekit" && !svelteKitAvailable) {
+    cancelSetup("This template release predates SvelteKit support — choose Astro, or wait for the next release.");
+  }
+  let framework = flags.framework ?? "astro";
+  if (flags.framework === undefined && svelteKitAvailable && interactive) {
+    const choice = await p.select({
+      message: "Framework",
+      options: [
+        { label: "Astro", value: "astro" },
+        { label: "SvelteKit", value: "sveltekit" },
+      ],
+    });
+    if (p.isCancel(choice)) cancelSetup();
+    framework = choice;
+  }
+
+  // 3. Starter template — options come from starters/*/starter.json in the
   // cloned tag. Older tags have no starters/ dir; the prompt is skipped and the
   // scaffold stays blank.
   const startersDir = path.join(projectDir, "starters");
@@ -344,6 +403,8 @@ async function main() {
       const manifestPath = path.join(startersDir, entry.name, "starter.json");
       if (!existsSync(manifestPath)) continue;
       try {
+        // A SvelteKit project needs the starter's Svelte port of its pages and blocks.
+        if (framework === "sveltekit" && !existsSync(path.join(startersDir, "sveltekit", entry.name))) continue;
         const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
         starterOptions.push({
           label: manifest.label ?? entry.name,
@@ -384,7 +445,7 @@ async function main() {
     starter = choice;
   }
 
-  // 3. Distribution mode — package is the recommended default; embedded stays
+  // 4. Distribution mode — package is the recommended default; embedded stays
   // first-class for teams that want to own and modify the runtime source.
   const mode =
     flags.mode ??
@@ -406,7 +467,7 @@ async function main() {
 
   if (p.isCancel(mode)) cancelSetup();
 
-  // 4. Deploy target
+  // 5. Deploy target
   const target =
     flags.target ??
     (await p.select({
@@ -460,7 +521,26 @@ async function main() {
 
   // Apply the starter overlay — project-owned files copied over the barebone
   // base. starter.json is manifest metadata, not project content.
-  if (starter) {
+  if (framework === "sveltekit") {
+    // Same CMS, different host: drop the Astro userland and lay the SvelteKit overlay over it.
+    for (const astroOnly of ["astro.config.mjs", "tsconfig.cloudflare.json", "src/env.d.ts", "src/pages", "src/layouts", "src/components"]) {
+      rmSync(path.join(projectDir, astroOnly), { recursive: true, force: true });
+    }
+    // Astro's favicon.ico; the overlay brings the Svelte favicon.svg.
+    rmSync(path.join(projectDir, "public/favicon.ico"), { force: true });
+    const overlay = path.join(projectDir, "adapters/sveltekit");
+    cpSync(overlay, projectDir, {
+      recursive: true,
+      filter: (src) =>
+        !src.endsWith("README.md") && !src.endsWith("package.patch.json") && !src.startsWith(path.join(overlay, "cloudflare")),
+    });
+    // The starter's content model and seed are host-independent; its pages and blocks
+    // come from the Svelte port.
+    if (starter) {
+      cpSync(path.join(startersDir, starter, "src/cms"), path.join(projectDir, "src/cms"), { recursive: true });
+      cpSync(path.join(startersDir, "sveltekit", starter), projectDir, { recursive: true });
+    }
+  } else if (starter) {
     cpSync(path.join(startersDir, starter), projectDir, { recursive: true });
     rmSync(path.join(projectDir, "starter.json"), { force: true });
   }
@@ -505,8 +585,8 @@ async function main() {
 
   s.stop(
     templateRef
-      ? `Project scaffolded from ${templateRef} (${mode})`
-      : `Project scaffolded (${mode})`,
+      ? `${FRAMEWORKS[framework].label} project scaffolded from ${templateRef} (${mode})`
+      : `${FRAMEWORKS[framework].label} project scaffolded (${mode})`,
   );
 
   // --- Apply target-specific files ---
@@ -532,10 +612,17 @@ async function main() {
     // The Cloudflare adapter/storage/env implementations live in the tree at
     // src/cms/platform/cloudflare. We only copy the target's Astro/Drizzle/wrangler config and
     // flip the two platform selectors to point at that profile — no source files are overwritten.
-    cpSync(
-      path.join(targetDir, "astro.config.mjs"),
-      path.join(projectDir, "astro.config.mjs"),
-    );
+    if (framework === "sveltekit") {
+      const svelteCloudflare = path.join(adaptersDir, "sveltekit/cloudflare");
+      cpSync(path.join(svelteCloudflare, "vite.config.ts"), path.join(projectDir, "vite.config.ts"));
+      cpSync(path.join(svelteCloudflare, "src"), path.join(projectDir, "src"), { recursive: true });
+      rmSync(path.join(projectDir, "server.js"), { force: true });
+    } else {
+      cpSync(
+        path.join(targetDir, "astro.config.mjs"),
+        path.join(projectDir, "astro.config.mjs"),
+      );
+    }
     cpSync(
       path.join(targetDir, "drizzle.config.ts"),
       path.join(projectDir, "drizzle.config.ts"),
@@ -567,7 +654,7 @@ async function main() {
   }
 
   // The template's README describes Kide itself; a project gets its own.
-  writeFileSync(path.join(projectDir, "README.md"), projectReadme(projectName, target, mode));
+  writeFileSync(path.join(projectDir, "README.md"), projectReadme(projectName, target, mode, framework));
 
   const pkgPath = path.join(projectDir, "package.json");
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
@@ -579,6 +666,9 @@ async function main() {
   // Needs starters/ (deleted above) and symlinks back into the template repo — repo-only.
   delete pkg.scripts["dev:preview"];
   delete pkg.scripts["verify:starters"];
+  if (framework === "astro") {
+    for (const name of SVELTE_TOOLING) delete pkg.devDependencies?.[name];
+  }
 
   if (mode === "package" && pkg.dependencies["@kidecms/core"]) {
     pkg.dependencies["@kidecms/core"] = `^${coreVersion}`;
@@ -610,9 +700,12 @@ async function main() {
     delete pkg.devDependencies["oauth2-mock-server"];
   }
 
-  if (target === "cloudflare") {
+  if (target === "cloudflare" && framework === "astro") {
     delete pkg.dependencies["@astrojs/node"];
     pkg.dependencies["@astrojs/cloudflare"] = "~14.4.8";
+  }
+
+  if (target === "cloudflare") {
 
     // Move better-sqlite3 to devDependencies — drizzle-kit needs it to push schema to local D1
     if (pkg.dependencies["better-sqlite3"]) {
@@ -624,7 +717,9 @@ async function main() {
     delete pkg.dependencies["sharp"];
 
     let wranglerContent = readFileSync(
-      path.join(targetDir, "wrangler.toml"),
+      framework === "sveltekit"
+        ? path.join(adaptersDir, "sveltekit/cloudflare/wrangler.toml")
+        : path.join(targetDir, "wrangler.toml"),
       "utf-8",
     );
     wranglerContent = wranglerContent.replaceAll(
@@ -643,12 +738,14 @@ async function main() {
 
     pkg.devDependencies.wrangler = "^4.149.0";
 
-    pkg.scripts.dev = "astro dev";
-    pkg.scripts.build = "astro build";
-    pkg.scripts.preview =
-      "astro build && wrangler dev --config dist/server/wrangler.json";
-    pkg.scripts.deploy =
-      "astro build && wrangler deploy --config dist/server/wrangler.json";
+    if (framework === "astro") {
+      pkg.scripts.dev = "astro dev";
+      pkg.scripts.build = "astro build";
+      pkg.scripts.preview =
+        "astro build && wrangler dev --config dist/server/wrangler.json";
+      pkg.scripts.deploy =
+        "astro build && wrangler deploy --config dist/server/wrangler.json";
+    }
 
     // @cloudflare/vite-plugin statically imports module.registerHooks (Node
     // >=22.15), Astro needs >=22.23.4, and Node >=23 changes the native ABI (breaking
@@ -662,6 +759,16 @@ async function main() {
       `       Run: nvm install 22 && nvm use   (or use fnm/volta)\\n');` +
       `process.exit(1)}"`;
     writeFileSync(path.join(projectDir, ".nvmrc"), "22\n");
+  }
+
+  if (framework === "sveltekit") {
+    // Last, so its scripts (vite, svelte-check) replace the Astro ones set above.
+    const patches = ["sveltekit/package.patch.json"];
+    if (target === "cloudflare") patches.push("sveltekit/cloudflare/package.patch.json");
+    for (const file of patches) applyPackagePatch(pkg, JSON.parse(readFileSync(path.join(adaptersDir, file), "utf-8")));
+    // The template lists the Svelte packages as devDependencies for its own verifier.
+    for (const name of Object.keys(pkg.dependencies)) delete pkg.devDependencies[name];
+    delete pkg.devDependencies[target === "cloudflare" ? "@sveltejs/adapter-node" : "@sveltejs/adapter-cloudflare"];
   }
 
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
@@ -690,6 +797,7 @@ async function main() {
       commit: templateCommit,
       target,
       mode,
+      framework,
       starter: starter ?? null,
       corePath: "src/cms",
       scaffoldedAt: new Date().toISOString(),
@@ -1100,7 +1208,9 @@ async function main() {
               s.start("Setting the admin sign-in secret");
               try {
                 execSync(
-                  `${pm.exec} wrangler secret put KIDE_SECRET --config dist/server/wrangler.json`,
+                  framework === "sveltekit"
+                    ? `${pm.exec} wrangler secret put KIDE_SECRET`
+                    : `${pm.exec} wrangler secret put KIDE_SECRET --config dist/server/wrangler.json`,
                   { cwd: projectDir, input: authSecret, stdio: ["pipe", "pipe", "pipe"] },
                 );
                 cf.secretSet = true;
