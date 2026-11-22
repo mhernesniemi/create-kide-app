@@ -600,6 +600,8 @@ async function main() {
     rmSync(path.join(projectDir, "scripts/generate-test-fixtures.ts"), {
       force: true,
     });
+    const scriptsDir = path.join(projectDir, "scripts");
+    if (existsSync(scriptsDir) && readdirSync(scriptsDir).length === 0) rmSync(scriptsDir, { recursive: true });
     // Dev tooling for the deleted worker tests / Cloudflare type profile.
     delete pkg.devDependencies["@cloudflare/vitest-pool-workers"];
     delete pkg.devDependencies["@cloudflare/workers-types"];
