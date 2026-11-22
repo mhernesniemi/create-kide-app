@@ -88,6 +88,7 @@ const CLEANUP = [
   ".github", // Kide's CI, release pipeline, PR template and README screenshot
   "LICENSE", // Kide's license; embedded mode keeps src/cms/LICENSE with the vendored runtime
   "components.json", // shadcn config for Kide's own admin components
+  "renovate.json", // Kide's own dependency bot config
   "scripts/verify-cloudflare.mjs", // needs the adapters/ overlay, which every scaffold deletes
   "scripts/verify-starters.mjs", // checks starters/, which every scaffold deletes
   "scripts/verify-upgrade.mjs", // Kide's release check
