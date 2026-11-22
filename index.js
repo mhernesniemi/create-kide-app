@@ -78,6 +78,7 @@ const REPO =
 // so scaffolds ship the /migrate skill alongside AGENTS.md.
 const CLEANUP = [
   "docs",
+  "packages", // Kide's own npm packages (@kidecms/wordpress); projects install them from npm
   "CLAUDE.md",
   "CONTRIBUTING.md",
   "CHANGELOG.md", // Kide's release history; upgrades go by .kide-version and `cms:upgrade`
