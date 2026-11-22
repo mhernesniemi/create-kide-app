@@ -85,9 +85,12 @@ const CLEANUP = [
   "SECURITY.md", // points vulnerability reports at the Kide repo
   "src/cms/README.md", // the @kidecms/core npm page
   ".claude/settings.local.json",
-  ".github/workflows", // upstream CI + @kidecms/core release pipeline — wrong in any scaffold
-  ".github/pull_request_template.md", // Kide's own contribution checklist — wrong in any scaffold
+  ".github", // Kide's CI, release pipeline, PR template and README screenshot
+  "LICENSE", // Kide's license; embedded mode keeps src/cms/LICENSE with the vendored runtime
+  "components.json", // shadcn config for Kide's own admin components
   "scripts/verify-cloudflare.mjs", // needs the adapters/ overlay, which every scaffold deletes
+  "scripts/verify-starters.mjs", // checks starters/, which every scaffold deletes
+  "scripts/verify-upgrade.mjs", // Kide's release check
   "scripts/dev-preview.mjs", // needs starters/ (deleted below) and symlinks back into this repo
   "data",
   ".cms-data",
@@ -486,6 +489,7 @@ async function main() {
       });
     }
     rmSync(corePkgPath, { force: true });
+    rmSync(path.join(projectDir, "src/cms/LICENSE"), { force: true });
     rmSync(path.join(projectDir, "pnpm-workspace.yaml"), { force: true });
     // Upstream distribution tooling that assumes the embedded workspace package.
     rmSync(path.join(projectDir, "scripts/verify-pack.mjs"), { force: true });
@@ -573,6 +577,7 @@ async function main() {
   delete pkg.scripts["verify:cloudflare"];
   // Needs starters/ (deleted above) and symlinks back into the template repo — repo-only.
   delete pkg.scripts["dev:preview"];
+  delete pkg.scripts["verify:starters"];
 
   if (mode === "package" && pkg.dependencies["@kidecms/core"]) {
     pkg.dependencies["@kidecms/core"] = `^${coreVersion}`;
@@ -598,6 +603,8 @@ async function main() {
     delete pkg.devDependencies["@cloudflare/vitest-pool-workers"];
     delete pkg.devDependencies["@cloudflare/workers-types"];
     delete pkg.devDependencies["jsdom"];
+    // Only core's own SSO tests use it.
+    delete pkg.devDependencies["oauth2-mock-server"];
   }
 
   if (target === "cloudflare") {
