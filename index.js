@@ -223,7 +223,7 @@ const resolveLatestTag = async () => {
 
 // --- CLI flags (non-interactive use: CI, agents, testing) ---
 // Any prompt whose answer is supplied by a flag is skipped. Example:
-//   create-kide-app my-app --framework=astro --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
+//   create-kide-app my-app --starter=marketing --seed --mode=embedded --target=local --no-github --no-dev
 // Without a terminal (CI, agents) a required answer must come from a flag; a missing one
 // fails with the flag to pass instead of stopping at a prompt nobody can answer.
 
@@ -284,7 +284,7 @@ async function main() {
     process.exit(1);
   }
   if (flags.framework !== undefined && !Object.hasOwn(FRAMEWORKS, flags.framework)) {
-    p.cancel(`--framework must be "astro" or "sveltekit".`);
+    p.cancel(`Unknown framework "${flags.framework}".`);
     process.exit(1);
   }
   if (flags.target !== undefined && !["local", "cloudflare"].includes(flags.target)) {
@@ -373,26 +373,13 @@ async function main() {
     process.exit(0);
   };
 
-  // 2. Framework — offered when the cloned release ships the SvelteKit overlay.
-  // Without a terminal and without --framework, Astro (every release supports it).
-  const svelteKitAvailable = existsSync(path.join(projectDir, "adapters/sveltekit"));
-  if (flags.framework === "sveltekit" && !svelteKitAvailable) {
-    cancelSetup("This template release predates SvelteKit support — choose Astro, or wait for the next release.");
+  // Framework: Astro unless the unlisted --framework=sveltekit flag asks otherwise.
+  if (flags.framework === "sveltekit" && !existsSync(path.join(projectDir, "adapters/sveltekit"))) {
+    cancelSetup("This template release predates SvelteKit support.");
   }
-  let framework = flags.framework ?? "astro";
-  if (flags.framework === undefined && svelteKitAvailable && interactive) {
-    const choice = await p.select({
-      message: "Framework",
-      options: [
-        { label: "Astro", value: "astro" },
-        { label: "SvelteKit", value: "sveltekit" },
-      ],
-    });
-    if (p.isCancel(choice)) cancelSetup();
-    framework = choice;
-  }
+  const framework = flags.framework ?? "astro";
 
-  // 3. Starter template — options come from starters/*/starter.json in the
+  // 2. Starter template — options come from starters/*/starter.json in the
   // cloned tag. Older tags have no starters/ dir; the prompt is skipped and the
   // scaffold stays blank.
   const startersDir = path.join(projectDir, "starters");
@@ -445,7 +432,7 @@ async function main() {
     starter = choice;
   }
 
-  // 4. Distribution mode — package is the recommended default; embedded stays
+  // 3. Distribution mode — package is the recommended default; embedded stays
   // first-class for teams that want to own and modify the runtime source.
   const mode =
     flags.mode ??
@@ -467,7 +454,7 @@ async function main() {
 
   if (p.isCancel(mode)) cancelSetup();
 
-  // 5. Deploy target
+  // 4. Deploy target
   const target =
     flags.target ??
     (await p.select({
