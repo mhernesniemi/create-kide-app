@@ -74,6 +74,8 @@ const REPO =
   "https://github.com/mhernesniemi/kide-cms.git";
 // Pins the template ref instead of the latest release tag (testing unreleased template changes).
 const TEMPLATE_REF = process.env.KIDE_TEMPLATE_REF || null;
+// Installs @kidecms/core from this spec instead of npm (release gates scaffold an unpublished tarball).
+const CORE_SPEC = process.env.KIDE_CORE_SPEC || null;
 
 // The template repo's own devDependencies for its SvelteKit verifier; an Astro project has no use for them.
 const SVELTE_TOOLING = [
@@ -122,6 +124,7 @@ const CLEANUP = [
   "scripts/verify-sveltekit.mjs", // assembles the SvelteKit target from adapters/, which every scaffold deletes
   "scripts/verify-starters.mjs", // checks starters/, which every scaffold deletes
   "scripts/verify-upgrade.mjs", // Kide's release check
+  "scripts/verify-scaffold.mjs", // Kide's release check; drives create-kide-app itself
   "scripts/dev-preview.mjs", // needs starters/ (deleted below) and symlinks back into this repo
   "data",
   ".cms-data",
@@ -486,7 +489,7 @@ async function main() {
   // The npm artifact publishes after the template tag (CI runs the release gate
   // first) — a package-mode scaffold in that window would fail install with a
   // missing version. Fail early with a clear message instead.
-  if (mode === "package") {
+  if (mode === "package" && !CORE_SPEC) {
     const clonedCorePkg = path.join(projectDir, "src/cms/package.json");
     const clonedCoreVersion = existsSync(clonedCorePkg)
       ? JSON.parse(readFileSync(clonedCorePkg, "utf-8")).version
@@ -658,7 +661,7 @@ async function main() {
   }
 
   if (mode === "package" && pkg.dependencies["@kidecms/core"]) {
-    pkg.dependencies["@kidecms/core"] = `^${coreVersion}`;
+    pkg.dependencies["@kidecms/core"] = CORE_SPEC ?? `^${coreVersion}`;
     delete pkg.scripts["verify:pack"];
     delete pkg.scripts["verify:package"];
     // Package-mode upgrades are `pnpm add @kidecms/core@latest` — the patch
