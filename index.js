@@ -993,6 +993,26 @@ async function main() {
     deployed: false,
     secretSet: false,
     url: null,
+    d1Conflict: null,
+  };
+  // Unreadable counts as holding data, so an existing database is only reused when known empty.
+  const d1HoldsData = (dbName, dbId) => {
+    // wrangler resolves the name through wrangler.toml, which still holds the placeholder id.
+    const wranglerPath = path.join(projectDir, "wrangler.toml");
+    const original = readFileSync(wranglerPath, "utf-8");
+    writeFileSync(wranglerPath, original.replace(/database_id = "[^"]*"[^\n]*/, `database_id = "${dbId}"`));
+    try {
+      const output = execSync(
+        `${pm.exec} wrangler d1 execute ${dbName} --remote --json --command "SELECT name FROM sqlite_master WHERE type='table'"`,
+        { cwd: projectDir, stdio: "pipe" },
+      ).toString();
+      const tables = JSON.parse(output)[0]?.results ?? [];
+      return tables.some(({ name }) => !/^(_cf_|sqlite_)/.test(name) && name !== "d1_migrations");
+    } catch {
+      return true;
+    } finally {
+      writeFileSync(wranglerPath, original);
+    }
   };
   if (target === "cloudflare") {
     const setupNow =
@@ -1082,29 +1102,27 @@ async function main() {
             );
           }
         } catch (err) {
-          // Already exists — look it up
+          const dbName = `${projectName}-db`;
+          let existingId = null;
           try {
-            const listOutput = execSync(`${pm.exec} wrangler d1 list`, {
-              cwd: projectDir,
-              stdio: "pipe",
-            }).toString();
-            const lines = listOutput.split("\n");
-            const dbLine = lines.find((l) => l.includes(`${projectName}-db`));
-            if (dbLine) {
-              const idMatch = dbLine.match(
-                /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
-              );
-              if (idMatch) databaseId = idMatch[0];
-            }
-            if (databaseId) {
-              cf.d1Created = true;
-              s.stop("D1 database already exists — using existing");
-            } else {
-              s.stop("D1 setup failed");
-              if (err.stderr) console.error(err.stderr.toString());
-            }
+            const databases = JSON.parse(
+              execSync(`${pm.exec} wrangler d1 list --json`, { cwd: projectDir, stdio: "pipe" }).toString(),
+            );
+            existingId = databases.find((db) => db.name === dbName)?.uuid ?? null;
           } catch {
+            // listing failed — reported as a setup failure below
+          }
+          if (!existingId) {
             s.stop("D1 setup failed");
+            if (err.stderr) console.error(err.stderr.toString());
+          } else if (d1HoldsData(dbName, existingId)) {
+            // Another project's data: migrating or deploying over it would fail or clobber it.
+            cf.d1Conflict = dbName;
+            s.stop(`D1 database "${dbName}" already exists and holds data — left untouched`);
+          } else {
+            databaseId = existingId;
+            cf.d1Created = true;
+            s.stop("D1 database already exists and is empty — using it");
           }
         }
 
@@ -1128,9 +1146,15 @@ async function main() {
           );
           cf.r2Created = true;
           s.stop("R2 bucket created");
-        } catch {
-          cf.r2Created = true;
-          s.stop("R2 bucket already exists");
+        } catch (err) {
+          const message = `${err.stderr ?? ""}${err.stdout ?? ""}`;
+          if (/already exists/i.test(message)) {
+            cf.r2Created = true;
+            s.stop("R2 bucket already exists");
+          } else {
+            s.stop("R2 bucket creation failed");
+            console.error(message.slice(-800));
+          }
         }
 
         // Generate migrations and apply to remote D1
@@ -1264,7 +1288,15 @@ async function main() {
     } else {
       const lines = [`cd ${projectName}`];
       const remaining = [];
-      if (!cf.d1Created) {
+      if (cf.d1Conflict) {
+        remaining.push(
+          `  # "${cf.d1Conflict}" already holds another project's data. Rename the`,
+          "  # database in wrangler.toml, or delete the old one first:",
+          `  ${pm.dlx} wrangler d1 delete ${cf.d1Conflict}`,
+          `  ${pm.dlx} wrangler d1 create ${cf.d1Conflict}`,
+          "  # then replace the placeholder database_id in wrangler.toml",
+        );
+      } else if (!cf.d1Created) {
         remaining.push(
           `  ${pm.dlx} wrangler d1 create ${projectName}-db`,
           "  # then replace the placeholder database_id in wrangler.toml",
