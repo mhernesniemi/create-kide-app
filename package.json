@@ -1,6 +1,6 @@
 {
   "name": "create-kide-app",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Scaffold a Kide CMS project for Astro",
   "author": "Matti Hernesniemi",
   "license": "MIT",
